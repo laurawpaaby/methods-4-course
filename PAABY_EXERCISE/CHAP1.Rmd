@@ -1,0 +1,186 @@
+---
+title: "CHAPTER 2"
+author: "Laura W. Paaby"
+date: "2/1/2022"
+output: html_document
+---
+
+# EASY 
+Which of the expressions below correspond to the statement: *The probability of rain on Monday?*
+(1) Pr(rain)
+(2) Pr(rain|Monday) <--- **THIS ONE it says: what is the probability it is raining given it is monday**
+(3) Pr(Monday|rain)
+(4) Pr(rain,Monday)/Pr(Monday) <---- which is the same as this one, just written out 
+
+
+
+2E2. Which of the following statements corresponds to the expression: Pr(Monday|rain)?
+(1) The probability of rain on Monday.
+(2) The probability of rain,given that it is Monday.
+(3) The probability that it is Monday,given that it is raining. <-- **THIS ONE !!!**
+(4) The probability that it is Monday and that it is raining.
+
+
+2E3. Which of the expressions below correspond to the statement: the probability that it is Monday, given that it is raining?
+(1) **Pr(Monday|rain)**
+(2) Pr(rain|Monday)
+(3) Pr(rain|Monday)Pr(Monday)
+(4) **Pr(rain|Monday)Pr(Monday)/Pr(rain) ** <- *THIS ONE because we can reverse bayes theorem and then look at given it is monday, what is the odds of raining.*
+(5) Pr(Monday|rain)Pr(rain)/Pr(Monday)
+
+
+2E4. The Bayesian statistician Bruno de Finetti (1906–1985) began his book on probability theory with the declaration: “PROBABILITY DOES NOT EXIST.” The capitals appeared in the original, so I imagine de Finetti wanted us to shout this statement. What he meant is that probability is a device for describing uncertainty from the perspective of an observer with limited knowledge; it has no objective reality. Discuss the globe tossing example from the chapter, in light of this statement. What does it mean to say “the probability of water is 0.7”?
+
+**FREQUENTIST FRAMEWORK**: if we count enough times the 0.7 will mean that there is 70% water on the globe. 
+**BAYESIAN**: will on the other hand say that this forever will be containting uncertainty, and will thus never represent the objective reality - cause no such number necessarily exist. The posterior distribution will just get more and more narrow around 70% water the more we toss the globe and find this. 
+
+
+*2M1.* Recall the globe tossing model from the chapter. Compute and plot the grid approximate posterior distribution for each of the following sets of observations. In each case, assume a uniform prior for p.
+```{r}
+###### 1) W W W
+# define grid  
+p_grid <- seq(from=0 , to=1 , length.out=100)
+
+# define prior  
+prior <- rep(1,100)
+
+# compute likelihood at each value in grid 
+likelihood_one <- dbinom(3, size=3 , prob = p_grid ) #3 and 3 comes from the draw (how many times do we draw w) = 3 times and the size of the total amount of draws
+
+# compute product of likelihood and prior 
+unstd.posterior <- likelihood_one * prior
+
+# standardize the posterior, so it sums to 1 
+posterior_one <- unstd.posterior / sum(unstd.posterior)
+
+plot(p_grid_one , posterior_one , type="b" ,  
+xlab="probability of water" , ylab="posterior probability" )
+mtext("W,W,W")
+```
+intuitively one would have expected a vertical line over 1 (prob of water), but this is not the case, since bayesian takes uncertainty into account - so even though the data migh indicate one thing, the probability might differ due to the additional info from the posteriors. 
+
+
+```{r}
+##### 2) W W W L
+# compute likelihood at each value in grid 
+likelihood_two <- dbinom(3, size=4 , prob = p_grid ) #3 and 3 comes from the draw (how many times do we draw w) = 3 times and the size of the total amount of draws
+
+# compute product of likelihood and prior 
+unstd.posterior_two <- likelihood_two * prior
+
+# standardize the posterior, so it sums to 1 
+posterior_two <- unstd.posterior_two / 
+  sum(unstd.posterior_two)
+
+plot(p_grid , posterior_two , type="b" ,  
+xlab="probability of water" , ylab="posterior probability" )
+mtext("W,W,W,L")
+```
+We now start to see a distribution 
+
+```{r}
+##### 2) L W W L W W W
+# compute likelihood at each value in grid 
+likelihood_t <- dbinom(5, size=7 , prob = p_grid ) #3 and 3 comes from the draw (how many times do we draw w) = 3 times and the size of the total amount of draws
+
+# compute product of likelihood and prior 
+unstd.posterior_t <- likelihood_t * prior
+
+# standardize the posterior, so it sums to 1 
+posterior_t <- unstd.posterior_t / 
+  sum(unstd.posterior_t)
+
+plot(p_grid , posterior_t , type="b" ,  
+xlab="probability of water" , ylab="posterior probability" )
+mtext("L W W L W W W")
+```
+
+!!!! MEDIUM !!!! 
+
+*2M2*. Now assume a prior for p that is equal to zero when p < 0.5 and is a positive constant when p ≥ 0.5. Again compute and plot the grid approximate posterior distribution for each of the sets of observations in the problem just above.
+
+```{r}
+#MAKING PRIOR
+prior_new <- ifelse( p_grid < 0.5 , 0 , 1 ) 
+
+p_grid1 <- seq(from=0 , to=1 , length.out=100)
+likelihood1 <- dbinom(5, size=7 , prob = p_grid1 )
+
+#making posterior
+unstd.posterior1 <- likelihood1 * prior_new
+posterior1 <- unstd.posterior1 /sum(unstd.posterior1)
+
+#plotting the WWW
+plot1 <- plot(p_grid , posterior1 , type="b" ,  xlab="probability of water" , ylab="posterior probability" , main = "WWW")
+
+
+#making posterior and plot WWWL
+unstd.posterior2 <- likelihood_two * prior_new
+posterior2 <- unstd.posterior2 /sum(unstd.posterior2)
+
+plot2 <- plot(p_grid , posterior2 , type="b" ,  xlab="probability of water" , ylab="posterior probability" , main = "WWWL")
+
+
+#making posterior and plot LWWLWWW
+unstd.posterior_tt <- likelihood_t * prior_new
+posterior_tt <- unstd.posterior_tt /sum(unstd.posterior_tt)
+
+plot3 <- plot(p_grid , posterior_tt , type="b" ,  xlab="probability of water" , ylab="posterior probability" , main = "LWWLWWW")
+```
+we see how it switches at 0.5 -> this makes kinda sense since the priors are either 0 or 1 depending on whether p (probability) is above or belove 0.5.
+
+
+*2M3.* Suppose there are two globes, one for Earth and one for Mars. The Earth globe is 70% covered in water. The Mars globe is 100% land. Further suppose that one of these globes—you don’t know which—was tossed in the air and produced a “land” observation. Assume that each globe was equally likely to be tossed. Show that the posterior probability that the globe was the Earth, conditional on seeing “land” (Pr(Earth|land)), is 0.23.
+
+***calculations:***
+pr(land|Earth) = 0.3
+pr(land|Mars) = 1
+pr(earth) = 0.5
+pr(land) = 0.5
+
+pr(earth|land) = p(land|earth)*p(earth) /p(land):
+
+we need to take into account mars as well:
+--> pr(earth|land) = p(land|earth)**p(earth)) / p(land|earth)**p(earth) + p(land|mars)**p(mars)  :
+```{r}
+P <- (0.3*0.5)/ (0.5*0.5 + 1*0.5)
+P
+```
+
+
+
+*2M4.* Suppose you have a deck with only three cards. Each card has two sides, and each side is either black or white. One card has two black sides. The second card has one black and one white side. The third card has two white sides. Now suppose all three cards are placed in a bag and shuffled. Someone reaches into the bag and pulls out a card and places it flat on a table. A black side is shown facing up, but you don’t know the color of the side facing down. Show that the probability that the other side is also black is 2/3. Use the counting method (Section 2 of the chapter) to approach this problem. This means counting up the ways that each card could produce the observed data (a black side facing up on the table).
+*there are 2 cards that can provide 3 blacks in different ways …. one of them is already used to give the facing card, leaving behind a 2/3 probability of the other side being black*
+
+
+*2M5*. Now suppose there are four cards: B/B, B/W, W/W, and another B/B. Again suppose a card is drawn from the bag and a black side appears face up. Again calculate the probability that the other side is black. 
+*the same theory, now just 4/5*
+
+
+*2M6* Imagine that black ink is heavy,and so cards with black sides are heavier than cards wit hwhite sides. As a result, it’s less likely that a card with black sides is pulled from the bag. So again assume there are three cards: B/B, B/W, and W/W. After experimenting a number of times, you conclude that for every way to pull the B/B card from the bag, there are 2 ways to pull the B/W card and 3 ways to pull the W/W card. Again suppose that a card is pulled and a black side appears face up. Show that the probability the other side is black is now 0.5. Use the counting method, as before.
+
+*there are in total 2 ways to get a black card where the other side also is black, while there are 4 ways in total to draw a card with a black side facing upwards - thus the probability of the downside being black is 0.5*
+
+
+*2M7* Assume again the original card problem, with a single card showing a black side face up. Before looking at the other side, we draw another card from the bag and lay it face up on the table. The face that is shown on the new card is white. Show that the probability that the first card, the one showing a black side, has black on its other side is now 0.75. Use the counting method, if you can. Hint: Treat this like the sequence of globe tosses, counting all the ways to see each observation, for each possible first card.
+*since there are 8 ways to observe the sequence black + white face up cards on the table and 6 of them is with the first being a black/black card, the probability of the downside of the black card being black is 6/8 = 0.75*
+
+*2H1.* Suppose there are two species of panda bear. Both are equally common in the wild and live in the same places. They look exactly alike and eat the same food, and there is yet no genetic assay capable of telling them apart. They differ however in their family sizes. Species A gives birth to twins 10% of the time, otherwise birthing a single infant. Species B births twins 20% of the time, otherwise birthing singleton infants. Assume these numbers are known with certainty, from many years of field research.
+Now suppose you are managing a captive panda breeding program. You have a new female panda of unknown species, and she has just given birth to twins. What is the probability that her next birth will also be twins?
+```{r}
+
+```
+
+*2H2.* Recall all the facts from the problem above. Now compute the probability that the panda we have is from species A, assuming we have observed only the first birth and that it was twins.
+```{r}
+
+```
+
+
+
+*2H3.* Continuingonfromthepreviousproblem,supposethesamepandamotherhasasecondbirth and that it is not twins, but a singleton infant. Compute the posterior probability that this panda is species A.
+```{r}
+
+```
+
+
