@@ -6,7 +6,7 @@ output: html_document
 ---
 
 # EASY 
-Which of the expressions below correspond to the statement: *The probability of rain on Monday?*
+2E1. Which of the expressions below correspond to the statement: *The probability of rain on Monday?*
 (1) Pr(rain)
 (2) Pr(rain|Monday) <--- **THIS ONE it says: what is the probability it is raining given it is monday**
 (3) Pr(Monday|rain)
