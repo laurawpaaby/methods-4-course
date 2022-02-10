@@ -5,15 +5,23 @@ date: "2/7/2022"
 output: html_document
 ---
 
+```{r}
+pacman::p_load(tidyverse, rethinking)
+```
+
+
 ## SAMPLING FROM A GRID APPROXIMATE POSTERIOR 
 making the posterior for the globe tossing model (tossing a globe to see if it hits either water or land):
 
 ```{r}
-p_grid <- seq( from=0 , to=1 , length.out=1000 ) 
-prob_p <- rep( 1 , 1000 )
-prob_data <- dbinom( 6 , size=9 , prob=p_grid )
-posterior <- prob_data * prob_p
-posterior <- posterior / sum(posterior)
+p_grid <- seq( from=0 , to=1 , length.out=1000 ) # here you just make a sequence from 0-1 and 1000 of the values, see plot for understanding 
+prob_p <- rep( 1 , 1000 ) # the prior probability - super uniform, just a sequence of 1
+prob_data <- dbinom( 6 , size=9 , prob=p_grid ) #6 water 9 tosses
+posterior <- prob_data * prob_p # this gives the posterior distribution its shape
+posterior <- posterior / sum(posterior) #standardizing => keeps the same shape, cause it does not change the relative values but the area under the curve (standardization)
+
+
+plot(posterior)
 ```
 
 Now lets draw 10,000 samples from this posterior -> the posterior is a bucket full of parameter values
@@ -36,7 +44,7 @@ sum( posterior[ p_grid < 0.5 ] )
 
 So 17% of the posterior probability is below 0.5. 
 
-Now the same can be achived without using the grid - which is often inadequate in more complex situation - we are now taking where samples are less then 0.5 divided by the number of samples drawn. 
+Now the same can be achieved without using the grid - which is often inadequate in more complex situation - we are now taking where samples are less then 0.5 divided by the number of samples drawn. 
 ```{r}
  sum( samples < 0.5 ) / 1e4
 ```
@@ -78,7 +86,7 @@ computing the 50% PERCENTILE COMPATIBILITY INTERVAL
 rethinking::PI(samples, prob = 0.5)
 ```
 
-This interval assigns 25% of the probability mass above and below the interval. So it pro- vides the central 50% probability.
+This interval assigns 25% of the probability mass above and below the interval. So it provides the central 50% probability.
 
 THIS KIND OF DOES NOT WORK IF DATA IS SUPER SCEWED - INSTEAD LOOK AT *HIGHEST POSTERIOR DENSITY INTERVAL* => HPDO
 
@@ -185,19 +193,256 @@ samples <- sample( p_grid , prob=posterior , size=1e4 , replace=TRUE )
 
 Use the values in samples to answer the questions that follow.
 *3E1.* How much posterior probability lies below p = 0.2?
+```{r}
+ sum( samples < 0.2 ) / 1e4
+```
+=> 4e-04% probability lies below 
+
 *3E2.* How much posterior probability lies above p = 0.8?
-*3E3.* How much posterior probability lies between p = 0.2 and p = 0.8? 3E4. 20% of the posterior probability lies below which value of p?
+```{r}
+ sum( samples > 0.8 ) / 1e4
+```
+
+
+*3E3.* How much posterior probability lies between p = 0.2 and p = 0.8? 
+```{r}
+ sum( samples > 0.2 & samples < 0.8) / 1e4
+```
+
+*3E4.* 20% of the posterior probability lies below which value of p?
+```{r}
+quantile(samples, 0.2)
+```
+        => so 0.52 is the value of p that 20% of the post prob lies below.
+```{r}
+# can be confirmed by going the other direction
+sum( samples < 0.5185) /1e4
+```
+    => gives approximately 20
+    
+    
+
 *3E5.* 20% of the posterior probability lies above which value of p?
+The trick here is to realize that finding the value of p above which 20% of the posterior probability lies means asking for the 80%
+quantile. Why? Because only 20% of the probability mass remains above 80%
+```{r}
+quantile(samples, 0.8)
+```
+      => it must then lie above 0.75
+
+
 *3E6.* Which values of p contain the narrowest interval equal to 66% of the posterior probability?
-*3E7.* Which values of p contain 66% of the posterior probability, assuming equal posterior probabil- ity both below and above the interval?
+```{r}
+rethinking::HPDI(samples, prob = 0.66)
+# i think these gives the two values then ... but dunno :DD again correct wuhu
+```
+
+
+*3E7.* Which values of p contain 66% of the posterior probability, assuming equal posterior probability both below and above the interval?
+```{r}
+rethinking::PI(samples, prob = 0.66)
+### again a bit of a wild guess => appears to be true 
+```
+
 
 
 Medium.
 *3M1.* Suppose the globe tossing data had turned out to be 8 water in 15 tosses. Construct the posterior distribution, using grid approximation. Use the same flat prior as before.
+```{r}
+p_grid <- seq( from=0 , to=1 , length.out=1000 ) 
+prior <- rep( 1 , 1000 )
+likelihood <- dbinom( 8 , size=15 , prob=p_grid ) #changing up to 8 water in 15 tosses here
+posterior <- likelihood * prior
+posterior <- posterior / sum(posterior)
+set.seed(100)
+samples <- sample( p_grid , prob=posterior , size=1e4 , replace=TRUE )
+
+plot( posterior ~ p_grid , type="l" )
+```
+
+
 *3M2.* Draw 10,000 samples from the grid approximation from above. Then use the samples to calculate the 90% HPDI for p.
+```{r}
+samples_m <- sample(p_grid, prob = posterior, size = 1e4, replace = TRUE) #drawing samples
+rethinking::HPDI(samples_m, prob = 0.90) # finding the 90% highest probability density interval for p:
+
+```
+    => *so the HPDI is between these to p-values*
+
+
 *3M3.* Construct a posterior predictive check for this model and data. This means simulate the distribution of samples, averaging over the posterior uncertainty in p. What is the probability of observing 8 water in 15 tosses?
-*3M4.* Using the posterior distribution constructed from the new (8/15) data,now calculate the probability of observing 6 water in 9 tosses.
-*3M5.* Startoverat3M1,butnowuseapriorthatiszerobelowp=0.5andaconstantabovep=0.5. This corresponds to prior information that a majority of the Earth’s surface is water. Repeat each problem above and compare the inferences. What difference does the better prior make? If it helps, compare inferences (using both priors) to the true value p = 0.7.
-R code 3.27
+```{r}
+m3 <- rbinom(1e4 , size=15 , prob=samples_m ) #This generates 10,000 (1e4) simulated predictions of 15 globe tosses (size=15), with the probability coming from the sample made.. => this gives a 10000 sized bucket of samples of 15, and then you can see in the next one how many of these were equal to 8/15 water being hit in each sample
+
+# the distribution
+rethinking::simplehist(m3)
+
+# the probabilty of observing 8 water in 15 tosses
+sum( m3 == 8 ) /1e4
+```
+
+
+*3M4.* Using the posterior distribution (m3) constructed from the new (8/15) data,now calculate the probability of observing 6 water in 9 tosses.
+```{r}
+m4 <- rbinom(1e4 , size=9 , prob=samples_m ) #now just changing the size of each of the samples drawn
+sum( m4 == 6 ) /1e4 #seeing how many of these where equal to 6/9 being drawn
+```
+
+
+
+
+*3M5.* Start over at 3M1,but now use a prior that is zero below p=0.5 and a constant above p=0.5 (*remember p is here a value from the grid, as far as I've understood*). This corresponds to prior information that a majority of the Earth’s surface is water. Repeat each problem above and compare the inferences. What difference does the better prior make? 
+If it helps, compare inferences (using both priors) to the true value p = 0.7.
+```{r}
+p_grid <- seq( from=0 , to=1 , length.out=1000 ) 
+
+new_prior <- ifelse( p_grid < 0.5 , 0, 1 )
+
+
+likelihood <- dbinom( 8 , size=15 , prob=p_grid ) #changing up to 8 water in 15 tosses here
+posterior <- likelihood * new_prior
+posterior <- posterior / sum(posterior)
+set.seed(100)
+samples_new <- sample( p_grid , prob=posterior , size=1e4 , replace=TRUE )
+
+plot( posterior ~ p_grid , type="l" )
+```
+==> we here see how if the p value of the grid is below 0.5 the posterior will be 0. If not it will be based on the likelihood and prior samples still
+
+```{r}
+## THE HDPI OVER 90%
+rethinking::HPDI(samples_new, prob = 0.90)
+```
+the difference here is here that the lower boundary of the interval has gone from 0.34 to 0.50, while the higher remains the same:
+the distribution is thus narrower, since the prior tells the model to ignore all values of p below 0.5. Prior information makes those values impossible causes of the data.
+
+```{r}
+#re-sampling the posterior predictive distribution
+m4 <- rbinom( 1e4 , size=15 , prob=samples_new )
+rethinking::simplehist(m4)
+
+## we see how the distribution now has changed ... what does it tells us???? now the 8 water does not seem to be the top of the normal distribtuion as before - we are now closer to nine, indicating that our model not replicate the data perfectly  
+```
+
+
+
 *3M6.* Suppose you want to estimate the Earth’s proportion of water very precisely. Specifically, you want the 99% percentile interval of the posterior distribution of p to be only 0.05 wide. This means the distance between the upper and lower bound of the interval should be 0.05. How many times will you have to toss the globe to do this?
+*I guess we must appraoch infinity to be sure, given a very frequntists perspective - if Bayesian im not sure .... *
+
+
+
+ 
+# HARD
+Introduction: The practice problems here all use the data below. These data indicate the gender
+(male=1, female=0) of officially reported first and second born children in 100 two-child families.
+
+```{r}
+birth1 <- c(1,0,0,0,1,1,0,1,0,1,0,0,1,1,0,1,1,0,0,0,1,0,0,0,1,0,0,0,0,1,1,1,0,1,0,1,1,1,0,1,0,1,1,0,1,0,0,1,1,0,1,0,0,0,0,0,0,0, 1,1,0,1,0,0,1,0,0,0,1,0,0,1,1,1,1,0,1,0,1,1,1,1,1,0,0,1,0,1,1,0, 1,0,1,1,1,0,1,1,1,1)
+
+birth2 <- c(0,1,0,1,0,1,1,1,0,0,1,1,1,1,1,0,0,1,1,1,0,0,1,1,1,0,1,1,1,0,1,1,1,0,1,0,0,1,1,1,1,0,0,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,0,1,1,0,1,1,1,0,0,0,0,0,0,1,0,0,0,1,1,0,0,1,0,0,1,1, 0,0,0,1,1,1,0,0,0,0)
+```
+So for example, the first family in the data reported a boy (1) and then a girl (0). The second family reported a girl (0) and then a boy (1). The third family reported two girls. You can load these two vectors into R’s memory by typing:
+```{r}
+library(rethinking)
+data(homeworkch3)
+
+```
+
+
+
+*3H1.* Using grid approximation, compute the posterior distribution for the probability of a birth being a boy. Assume a uniform prior probability. Which parameter value maximizes the posterior probability?
+```{r}
+p <- seq(from = 0,to = 1, length.out=1000)
+#making a 1000 probabilities between 0 and 1 for being either a boy or girl 
+
+#to make a uniform prior we: 
+prob_prior <- rep(1, 1000)
+
+#seeing how many BOYS (cause they are the 1) was born:
+boys <- sum(birth1)+sum(birth2) #these 111 boys are now the probability out of 200 in total to get a boy:
+likelihood_boys <- dbinom(boys , size=200 , prob=p ) 
+
+#making the posterior
+posterior_boys <- likelihood_boys * prob_prior 
+posterior_boys <- posterior_boys / sum(posterior_boys)
+
+
+samples_birth <- sample( p , prob=posterior_boys , size=1e4 , replace=TRUE )
+
+### TRYING OUT PLOTS
+rethinking::simplehist(samples_birth)
+plot( posterior_boys ~ p , type="l" )
+```
+
+ THE PARAMETER VALUE THAT MAXIMIZES EXPECPTED WINNINGS AND HENCE MINIMIZE LOSSES IS THE: **MEDIAN OF THE POSTERIOR DISTRIBUTION**. => notes from book. So ill guess we have to find that. 
+```{r}
+p[which.max(posterior_boys)]
+```
+this is now the parameter value at which the posterior distribution is maximized - makes sense in the plot 
+
+
+*3H2.* Using the sample function, draw 10,000 random parameter values from the posterior distribution you calculated above. Use these samples to estimate the 50%, 89%, and 97% highest posterior density intervals.
+```{r}
+length(samples_birth) #we good :D
+
+# FINDING THE HPDI:  highest posterior density intervals.
+HPDI(samples_birth, prob = 0.50)
+HPDI(samples_birth, prob = 0.89)
+HPDI(samples_birth, prob = 0.97)
+```
+=> Each of these intervals is the narrowest range of parameter values that contains the specified probability mass.
+
+
+*3H3.* Use rbinom to simulate 10,000 replicates of 200 births. You should end up with 10,000 numbers, each one a count of boys out of 200 births. Compare the distribution of predicted numbers of boys to the actual count in the data (111 boys out of 200 births). There are many good ways to visualize the simulations, but the dens command (part of the rethinking package) is probably the easiest way in this case. Does it look like the model fits the data well? That is, does the distribution of predictions include the actual observation as a central, likely outcome?
+
+```{r}
+#simulating the data based on the birth sample
+simulation <- rbinom( 1e4 , size=200 , prob=samples_birth)
+length(simulation)
+
+```
+
+```{r}
+rethinking::dens(simulation) + abline( v=sum(birth1)+sum(birth2))
+#to make it visible exactly where the number of borned boys are we make an abline
+
+## we seee here that the line is actually pretty close to the peak of the posterior distibrution, which means that the data does a quite alright job in predicting !!!
+```
+
+
+
+*3H4.* Now compare 10,000 counts of boys from 100 simulated firstborns only to the number of boys in the first births, birth1. How does the model look in this light?
+
+```{r}
+#making a new sample set only on birth 1:
+
+likelihood_birth1 <- dbinom(sum(birth1) , size=100 , prob=p ) 
+
+#making the posterior
+post_birth1 <- likelihood_birth1 * prob_prior 
+post_birth1 <- post_birth1  / sum(post_birth1 )
+
+samples_birth1 <- sample( p , prob=post_birth1 , size=1e4 , replace=TRUE )
+
+### okay maybe the things above should not have been done in order to test the model - actually I might gave it the informations im trying to test it for - so instead the simulations should just have been on prob = samples_birth and not birth1 ....m
+
+#simulating the data based on the birth sample
+simulation_birth1 <- rbinom( 1e4 , size=100 , prob=samples_birth1)
+
+#plot
+dens(simulation_birth1) 
+abline( v=sum(birth1), col="red")
+```
+
+
+*3H5.* The model assumes that sex of first and second births are independent. To check this assumption, focus now on second births that followed female first borns. Compare 10,000 simulated counts of boys to only those second births that followed girls. To do this correctly, you need to count the number of first borns who were girls and simulate that many births, 10,000 times. Compare the counts of boys in your simulations to the actual observed count of boys following girls. How does the model look in this light? Any guesses what is going on in these data?
+
+
+
+
+
+
+
+
+
 
