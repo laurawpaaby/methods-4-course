@@ -1,0 +1,141 @@
+---
+title: "CHAPTER 4"
+author: "Laura W. Paaby"
+date: "2/9/2022"
+output: html_document
+---
+```{r}
+pacman::p_load(tidyverse, rethinking)
+```
+
+# THE FLIP COIN EXPERIMENT ON THE SOCCER FIELD
+all your friends stand at the sideline of a soccer field, and flip a coin 16 times - if one side they go left, if the other they go right. 
+even though the outcome is binomial, the distribution will still be Gaussian - lets see why:
+```{r}
+ pos <- replicate( 1000 , sum( runif(16,-1,1) ) )
+####we generate for each person a list of 16 random numbers between −1 and 1. These are the individual steps. Then we add these steps together to get the position after 16 steps. Then we need to replicate this procedure 1000 times. 
+
+hist(pos)
+dens(pos)
+```
+
+### normal by multiplacation
+```{r}
+prod( 1 + runif(12,0,0.1) )
+```
+This code just samples 12 random numbers between 1.0 and 1.1, each representing a pro- portional increase in growth. Thus 1.0 means no additional growth and 1.1 means a 10% increase. The product of all 12 is computed and returned as output. Now what distribution do you think these random products will take?
+```{r}
+growth <- replicate( 10000 , prod( 1 + runif(12,0,0.1) ) ) 
+dens( growth , norm.comp=TRUE )
+```
+
+Again still obviously true - now not because of fluctation in addition, but because the effect is small, and multiplying small effects, is kinda like addition: 
+```{r}
+big <- replicate( 10000 , prod( 1 + runif(12,0,0.5) ) ) 
+small <- replicate( 10000 , prod( 1 + runif(12,0,0.01) ) )
+
+dens( big , norm.comp=TRUE )
+dens( small , norm.comp=TRUE )
+### we verify how the smaller effect is closer a normal distribution here ... -> the smaller the effect the better the approximation 
+
+## this can be fixed by taking the log of the big:
+log.big <- replicate( 10000 , log(prod(1 + runif(12,0,0.5))) )
+dens( log.big , norm.comp=TRUE ) #WUHU a normal distribution
+```
+# BUILDING A REGRESSION
+```{r}
+data(Howell1)
+d <- Howell1
+
+precis(d)
+### well work with the height
+d$height
+```
+```{r}
+# we only want to work with adults, so filter out people under 18:
+data <- d[d$age>=18,] ### the , just ensures we get the entire matrix with us :D 
+```
+We’re ready to write down the general model and compute the plausibility of each combination of μ and σ, which are the one we wants to investigate:
+$$ h_i ~ Normal(\mu, \sigma) $$
+where i is each individual in the list. (the index for each row number)
+SO ALL THE MODEL knows about each height measurement is defined by the same normal distribution, with mean μ and standard deviation σ.!!!
+
+##### making priors:
+these are just chosen priors:  
+μ = 178
+σ = 20
+
+```{r}
+ curve( dnorm( x , 178 , 20 ) , from=100 , to=250 ) #this plots the curve from 100-200cm, where 178 is the mean and the standard deviation 20cm. 
+```
+
+now that this is done we must make the prior predictive simulation - which is to make priors based on the model, before fitting the data:
+```{r}
+sample_mu <- rnorm( 1e4 , 178 , 20 )
+sample_sigma <- runif( 1e4 , 0 , 50 )
+prior_h <- rnorm( 1e4 , sample_mu , sample_sigma ) 
+dens( prior_h )
+```
+The distribution you see is not an empirical expectation, but rather the distribution of relative plausibilities of different heights, before seeing the data.
+
+OKAY BUT TAKE A LOOK AT THIS - many people are ABOVE 250 cm ... not very precise ...
+
+```{r}
+## now the sd is no longer 20 but 100, because the book says so .... 
+sample_mu <- rnorm( 1e4 , 178 , 100 )
+prior_h <- rnorm( 1e4 , sample_mu , sample_sigma ) 
+dens( prior_h )
+```
+
+now the heights are going all crazy ....... 
+We will now manually add the posterior distribution by a *grid approximation* ..
+
+## POSTERIOR AND GRID:
+```{r}
+mu.list <- seq( from=150, to=160 , length.out=100 ) 
+sigma.list <- seq( from=7 , to=9 , length.out=100 ) 
+post <- expand.grid( mu=mu.list , sigma=sigma.list ) 
+
+post$LL <- sapply( 1:nrow(post), function(i) sum(
+  dnorm( data$height , post$mu[i] , post$sigma[i] , log=TRUE ) ) )
+
+post$prod <- post$LL + dnorm( post$mu , 178 , 20 , TRUE ) + dunif( post$sigma , 0 , 50 , TRUE ) 
+
+post$prob <- exp( post$prod - max(post$prod) )
+
+
+# PLOTS
+contour_xyz( post$mu , post$sigma , post$prob ) #contourmap 
+image_xyz( post$mu , post$sigma , post$prob ) #heatmap
+```
+
+# sampling from the posterior 
+=> this is just like when we previously sampled p, now we just need it for both the mean and sd:
+```{r}
+sample.rows <- sample( 1:nrow(post) , size=1e4 , replace=TRUE , prob=post$prob )
+sample.mu <- post$mu[ sample.rows ] #samling the mean, from the mu generated
+sample.sigma <- post$sigma[ sample.rows ] #sampling the standard deviation from the sigma generated
+```
+*we have now simulated 10000 samples of the height data, lets take a look at it:*
+```{r}
+ plot( sample.mu , sample.sigma , cex=0.5 , pch=16 , col=col.alpha(rangi2,0.1) )
+# cex => character expansion
+# pch => plot character
+# col.aplha makes it seethrough
+```
+
+
+**LOOKING AT THE FRESHLY MADE SIGMA AND MU**
+```{r}
+dens( sample.mu, adj = 0.1 ) 
+dens( sample.sigma, adj = 0.1 )
+## WE SEE KIND OF NORMAL DISTRIBUTIONS DD
+```
+
+```{r}
+# finding the PI POSTERIOR INTERVALS:
+PI(sample.mu)
+PI(sample.sigma)
+```
+
+DU ER NÅET TIL SIDE 90 :DDD

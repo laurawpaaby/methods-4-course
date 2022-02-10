@@ -95,7 +95,7 @@ there are different kinds and often should you not do it if you dont have any go
 
 #### the mamiximum posteriori - the higest posterior probability
 ```{r}
-p_grid[which.max(posterior)]
+p_grid[which.max(posterior)]S
 
 ## can also be done by
 rethinking::chainmode( samples , adj=0.01 )
@@ -109,4 +109,95 @@ median(samples)
 ```
 
 
+# LOSSESS 
+```{r}
+## calculating the expected loss - after having decided p = 0.5 
+sum( posterior*abs( 0.5 - p_grid ) )
+```
+^^^ the weighted average loss, where each loss is weighted by its corresponding post prob. 
+
+now for every possible decision (not only p = 0.5):
+```{r}
+ loss <- sapply( p_grid , function(d) sum( posterior*abs( d - p_grid ) ) )
+
+### finding the parameter values minimizing loss the most: 
+p_grid[which.min(loss)]
+
+
+```
+
+THIS IS NOW THE POSTERIOR MEDIAN - THE PARAMETER VALUE THAT SPLITS THE POSTERIOR DENSITY SUCH THAT HALF OF THE MASS IS ABOVE AND THE OTHER ONE BELOW. 
+
+
+
+
+# SIMULATE DATA 
+BINOMIAL:
+```{r}
+ dbinom( 0:2 , size=2 , prob=0.7 )
+# Supoosing we toss the globe 2 times, there is a 70 probability of hiting water, and it can be either land or water o:2.
+```
+
+
+RANDOM:
+```{r}
+ rbinom( 10 , size=2 , prob=0.7 )
+```
+Let’s generate 100,000 dummy observations, just to verify that each value (0, 1, or 2) appears in proportion to its likelihood:
+```{r}
+dummy_w <- rbinom( 1e5 , size=2 , prob=0.7 ) 
+table(dummy_w)/1e5
+```
+
+
+
+```{r}
+dummy_w <- rbinom( 1e5 , size=9 , prob=0.7 ) #now with 9 tosses as initially
+rethinking::simplehist( dummy_w , xlab="dummy water count" )
+```
+
+#  posterior predictive distribution
+To simulate predicted observations for a single value of p, say p = 0.6, you can use rbinom to generate random binomial samples:
+```{r}
+ w <- rbinom( 1e4 , size=9 , prob=0.6 ) #This generates 10,000 (1e4) simulated predictions of 9 globe tosses (size=9), assuming p = 0.6. 
+rethinking::simplehist( w , xlab=" dummy posterior predictive water count" )
+
+```
+this has so far been done with the posterior of our choice 0.6 -> now we instead use the samples as posterior:
+```{r}
+ z <- rbinom( 1e4 , size=9 , prob=samples )
+rethinking::simplehist( z , xlab=" posterior predictive water count w samples" )
+```
+
+
+## EXERCISES FROM CHAPTER 3
+*Easy.* These problems use the samples from the posterior distribution for the globe tossing example. This code will give you a specific set of samples, so that you can check your answers exactly:
+```{r}
+p_grid <- seq( from=0 , to=1 , length.out=1000 ) 
+prior <- rep( 1 , 1000 )
+likelihood <- dbinom( 6 , size=9 , prob=p_grid ) 
+posterior <- likelihood * prior
+posterior <- posterior / sum(posterior)
+set.seed(100)
+samples <- sample( p_grid , prob=posterior , size=1e4 , replace=TRUE )
+```
+
+
+Use the values in samples to answer the questions that follow.
+*3E1.* How much posterior probability lies below p = 0.2?
+*3E2.* How much posterior probability lies above p = 0.8?
+*3E3.* How much posterior probability lies between p = 0.2 and p = 0.8? 3E4. 20% of the posterior probability lies below which value of p?
+*3E5.* 20% of the posterior probability lies above which value of p?
+*3E6.* Which values of p contain the narrowest interval equal to 66% of the posterior probability?
+*3E7.* Which values of p contain 66% of the posterior probability, assuming equal posterior probabil- ity both below and above the interval?
+
+
+Medium.
+*3M1.* Suppose the globe tossing data had turned out to be 8 water in 15 tosses. Construct the posterior distribution, using grid approximation. Use the same flat prior as before.
+*3M2.* Draw 10,000 samples from the grid approximation from above. Then use the samples to calculate the 90% HPDI for p.
+*3M3.* Construct a posterior predictive check for this model and data. This means simulate the distribution of samples, averaging over the posterior uncertainty in p. What is the probability of observing 8 water in 15 tosses?
+*3M4.* Using the posterior distribution constructed from the new (8/15) data,now calculate the probability of observing 6 water in 9 tosses.
+*3M5.* Startoverat3M1,butnowuseapriorthatiszerobelowp=0.5andaconstantabovep=0.5. This corresponds to prior information that a majority of the Earth’s surface is water. Repeat each problem above and compare the inferences. What difference does the better prior make? If it helps, compare inferences (using both priors) to the true value p = 0.7.
+R code 3.27
+*3M6.* Suppose you want to estimate the Earth’s proportion of water very precisely. Specifically, you want the 99% percentile interval of the posterior distribution of p to be only 0.05 wide. This means the distance between the upper and lower bound of the interval should be 0.05. How many times will you have to toss the globe to do this?
 
