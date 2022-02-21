@@ -138,4 +138,309 @@ PI(sample.mu)
 PI(sample.sigma)
 ```
 
-DU ER NÅET TIL SIDE 90 :DDD
+
+
+# analyzing 20 random heights 
+```{r}
+data_height <- sample(data$height, size=20)
+
+
+## making the mu - mean, and sigma - standard deviation:
+mu.list <- seq(from=150, to=170, length.out = 200)
+sigma.list <- seq(from = 4, to = 20, length.out = 200)
+
+# making the posterior:
+post2 <- expand.grid(mu = mu.list, sigma=sigma.list)
+?expand.grid #Creates a data frame from all combinations of the supplied vectors or factors¨¨¨
+
+post2$LL <- sapply(1:nrow(post2) , function(i)
+    sum( dnorm( data_height , mean=post2$mu[i] , sd=post2$sigma[i] ,log=TRUE ) ) )
+
+
+post2$prod <- post2$LL + dnorm( post2$mu , 178 , 20 , TRUE ) +
+dunif( post2$sigma , 0 , 50 , TRUE )
+
+post2$prob <- exp( post2$prod - max(post2$prod) )
+sample2.rows <- sample( 1:nrow(post2) , size=1e4 , replace=TRUE ,prob=post2$prob )
+
+sample2.mu <- post2$mu[ sample2.rows ] 
+sample2.sigma <- post2$sigma[ sample2.rows ] 
+
+plot( sample2.mu , sample2.sigma , cex=0.5 ,col=col.alpha(rangi2,0.1) , xlab="mu" , ylab="sigma" , pch=16 )
+
+```
+After executing the code above, you’ll see another scatter plot of the samples from the posterior den- sity, but this time you’ll notice a distinctly longer tail at the top of the cloud of points. You should also inspect the marginal posterior density for σ, averaging over μ, produced with:
+
+```{r}
+dens(sample2.sigma, norm.comp = TRUE)
+```
+
+
+
+
+
+# QUADRATIC APPROXIMATION
+We do this to find the posteriors maximum peak MAP, which is useful since it tells us something about the shape of the distribution. 
+
+```{r}
+# we gonna use:
+data #people over 18 only
+```
+=> OUR MODEL DEFINITION: 
+height ~ dnorm(mu,sigma)
+mu ~ dnorm(156,10)
+sigma ~ dunif(0,50)
+
+
+whut is alist?!??!?!!? => The two functions *alist* and *list* do the same basic thing: allow you to make a collection of arbitrary R objects. They differ in one important respect: list evaluates the code you embed inside it, while alist does not. So when you define a list of formulas, you should use alist, so the code isn’t ex- ecuted. B
+```{r}
+flist <- alist(height ~ dnorm( mu , sigma ) ,
+               mu ~ dnorm( 178 , 20 ) , 
+               sigma ~ dunif( 0 , 50 )
+)
+
+
+#### FITTING THE MODEL - a weird way to do it i feel like ;D
+m4_1 <- quap(flist,data = data)  #but hacing this model of the posterior distribution, we can now investigate it further:
+
+precis(m4_1)
+```
+
+The 5.5% and 94.5% quantiles are percentile interval boundaries, corresponding to an 89% compatibility interval. it can be changed by:
+```{r}
+precis(m4_1,prob = 0.95)
+```
+CHANGING up the priors - so they no longer sooooo weak;
+```{r}
+m4.2 <- quap( 
+  alist(
+    height ~ dnorm( mu , sigma ) ,
+    mu ~ dnorm( 178 , 0.1 ) , 
+    sigma ~ dunif( 0 , 50 )
+    ) , data=data ) 
+
+precis( m4.2 )
+```
+ALL WE HAVE GOTTEN SO FAR IS A *QUADRATIC APPROXIMATION OF THE PRIOR*
+=> How do we get to *samples* form quadratic approximate *posterior distribution*????? 
+ANSWER: we must recognize that a a quadratic approximation to a posterior distribution with MORE than one parameter dimension (mu and sigma contribute to one dimension), is just a multi dimensional gaussian distribution.....
+
+```{r}
+#finding the variance-covariance matrix:
+vcov(m4_1)
+```
+
+```{r}
+diag( vcov( m4_1 ) ) # a vector of variances for the parameters
+cov2cor( vcov( m4_1 ) ) # correlation matrix, that tells us how changes in any parameter lead to correlated changes in the others
+```
+Each entry of the 2x2 matrix in the bottom shows the correlation, bounded between −1 and +1, for each pair of parameters. (if 1, correlation with it self), were the one close to 0 tells us that knowing sigma in this case tells us nothing about mu, and the other way around - cause the numbers are tiny.
+
+NOW it is time for the *multi dimensional sampling*:
+```{r}
+library(rethinking)
+post <- extract.samples( m4_1 , n=1e4 ) 
+head(post)
+```
+
+```{r}
+precis(post) #the quadratic sampled posteriors
+precis(m4_1) # the models values 
+```
+
+
+
+*okay so so far we have made a GAUSSIAN MODEL OF HEIGHT in a adult population .... doesn't really feel like it though :DDDD*
+
+because ...., it doesn't have a predictor variable 
+
+first lets just look how much height and weight covary:
+```{r}
+plot(data$height ~ data$weight)
+```
+
+
+# LINEAR REGRESsiON
+to understand the betha values (parameters) of the linear models, and their distribution as priors - and why this is a gaussian prior with the mean zero (???) we must simulate the *prior predictive distribution*
+
+THE GOAL: to simulate height from the model using only priors:
+the information/priors we will use in then the weight . 
+```{r}
+#making a bunch of lines, implied by the priors for alpha and betha:
+set.seed(2971)
+N <- 100
+a <- rnorm( N , 178 , 20 ) 
+b <- rnorm( N , 0 , 10 )
+
+
+### plotting the lines:
+plot( NULL , xlim=range(data$weight) , ylim=c(-100,400) , xlab="weight" , ylab="height" )
+abline( h=0 , lty=2 )
+abline( h=272 , lty=1 , lwd=0.5 )
+mtext( "b ~ dnorm(0,10)" )
+xbar <- mean(data$weight)
+for ( i in 1:N ) curve( a[i] + b[i]*(x - xbar) , #the linear regression are made for each point here
+from=min(data$weight) , to=max(data$weight) , add=TRUE , col=col.alpha("black",0.2) )
+```
+remember: we have not yet seen the data ... but DUDE this is a bad model :D who the fuck is lower than -100 cm???
+
+Also the increment of height only happens into some value ... we can thus restrict the positive values => this is done by defining the prior as log-normal instead
+
+```{r}
+b <- rlnorm( 1e4 , 0 , 1 ) #rlnorm is a log-normal distribution
+dens( b , xlim=c(0,5) , adj=0.1 )
+```
+this makes betha b positive, the reason is that exp(x) is greater than zero for any real number x - thus log priors are common place => they are an easy way to enforce postive relationships 
+
+doing the prior simulation again, but with log-normal priors:
+```{r}
+set.seed(2971)
+N <- 100 # 100 lines a <- rnorm( N , 178 , 20 )
+b <- rlnorm( N , 0 , 1 )
+
+dens(b, xlim=c(0,5), adj=0.1)
+```
+
+
+
+# FINDING THE POSTERIOR DISTRIBUTION
+still using the data from Howell1:
+```{r}
+# define the average weight, x-bar 
+xbar <- mean(data$weight)
+
+# fit model 
+m4.3 <- quap(
+  alist(height ~ dnorm( mu , sigma ) , 
+  mu <- a + b*( weight - xbar ) , # mu is now a function of other parameters (a and b), and thus no longer a parameter on its own - it is however still uncertain cause it depends on uncertain parameters
+  a ~ dnorm( 178 , 20 ) ,
+  b ~ dlnorm( 0 , 1 ) ,
+  sigma ~ dunif( 0 , 50 ) ),
+data=data )
+
+
+```
+*so what we do is making a model with the quap function - here based on:*
+hi ∼ Normal(μi, σ)
+μi =α+β(xi − ̄x)
+α ∼ Normal(178, 20) 
+β ∼ Log-Normal(0, 1)
+σ ∼ Uniform(0, 50)
+
+*now the interpretation of this bad boy*:
+OBS: once you fit the model it can only report posterior distribution
+
+```{r}
+precis(m4.3)
+```
+
+The first row gives the quadratic approximation for α, the second the approximation for β, and the third approximation for σ
+
+ Since β is a slope, the value 0.90 can be read as a person 1 kg heavier is expected to be 0.90 cm taller. 89% of the posterior probability lies between 0.84 and 0.97. That suggests that β values close to zero or greatly above one are highly incompatible with these data and this model. It is most certainly not evidence that the relationship between weight and height is linear, because the model only considered lines. It just says that, if you are committed to a line, then lines with a slope around 0.9 are plausible ones.
+
+BUT TTHIS IS NOT ENOUGHB => we must look at the covariance matrix: 
+```{r}
+round(vcov(m4.3), 3) #covariance
+pairs(m4.3) #showing the marginal posterior and the covariance
+```
+
+## plotting against the data
+```{r}
+plot( height ~ weight , data=data, col=rangi2 ) 
+post <- extract.samples( m4.3 )
+a_map <- mean(post$a)
+b_map <- mean(post$b)
+curve( a_map + b_map*(x - xbar) , add=TRUE )
+```
+
+
+taking out samples of each possible posterior;
+```{r}
+post <- extract.samples( m4.3 ) 
+post[1:5,]
+```
+
+
+plotting it;
+
+```{r}
+N <- 10
+dN <- data[ 1:N , ] 
+mN <- quap(
+  alist(
+    height ~ dnorm( mu , sigma ) ,
+    mu <- a + b*( weight - mean(weight) ) , a ~ dnorm( 178 , 20 ) ,
+    b ~ dlnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 50 )
+) , data=dN )
+
+
+# extract 20 samples from the posterior post <- extract.samples( mN , n=20 )
+# display raw data and sample size
+plot( dN$weight , dN$height ,
+    xlim=range(data$weight) , ylim=range(data$height) ,
+    col=rangi2 , xlab="weight" , ylab="height" )
+mtext(concat("N = ",N))
+# plot the lines, with transparency
+for ( i in 1:20 )
+curve( post$a[i] + post$b[i]*(x-mean(dN$weight)) , col=col.alpha("black",0.3) , add=TRUE )
+
+```
+```{r}
+post <- extract.samples( m4.3 )
+mu_at_50 <- post$a + post$b * ( 50 - xbar )
+
+#this is now posting the samples for a person that has the wheight of 50
+dens( mu_at_50 , col=rangi2 , lwd=2 , xlab="mu|weight=50" )
+```
+Since the posterior for μ is a distribution, you can find intervals for it, just like for any posterior distribution. To find the 89% compatibility interval of μ at 50 kg, just use the PI command as usual::
+```{r}
+PI(mu_at_50, prob=0.89)
+```
+
+```{r}
+mu <- link( m4.3 ) 
+str(mu)
+# we have a distribution of μ for each individual in the original data
+
+## BUT We actually want something slightly different: a distribution of μ for each unique weight value on the horizontal axis. It’s only slightly harder to compute that, by just passing link some new data:
+
+# define sequence of weights to compute predictions for # these values will be on the horizontal axis 
+weight.seq <- seq( from=25 , to=70 , by=1 )
+# use link to compute mu
+# for each sample from posterior
+# and for each weight in weight.seq
+mu <- link( m4.3 , data=data.frame(weight=weight.seq) ) 
+str(mu)
+```
+And now there are only 46 columns in mu, because we fed it 46 different values for weight.
+To visualize what you’ve got here, let’s plot the distribution of μ values at each height.
+```{r}
+# use type="n" to hide raw data
+plot( height ~ weight , data , type="n" )
+# loop over samples and plot each mu value
+for ( i in 1:100 )
+points( weight.seq , mu[i,] , pch=16 , col=col.alpha(rangi2,0.1) )
+
+
+# summarize the distribution of mu 
+mu.mean <- apply( mu , 2 , mean )
+mu.PI <- apply( mu , 2 , PI , prob=0.89 )
+
+
+# plot raw data
+# fading out points to make line and interval more visible 
+plot( height ~ weight , data=data , col=col.alpha(rangi2,0.5) )
+# plot the MAP line, aka the mean mu for each weight 
+lines( weight.seq , mu.mean )
+# plot a shaded region for 89% PI 
+shade( mu.PI , weight.seq )
+```
+
+
+
+
+
+
+
+
