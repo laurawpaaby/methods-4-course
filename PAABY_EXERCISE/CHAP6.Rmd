@@ -1,0 +1,370 @@
+---
+title: "CHAPTER 6"
+author: "Laura W. Paaby"
+date: "3/1/2022"
+output: html_document
+---
+```{r}
+pacman::p_load(rethinking, tidyverse)
+```
+
+
+# MULTICOLLINIARITY 
+
+```{r}
+#simulating legs and heigts:
+
+ 
+N <- 100# number of individuals
+set.seed(909)
+height <- rnorm(N,10,2) # sim total height of each
+
+leg_prop <- runif(N,0.4,0.5) # leg as proportion of height
+
+leg_left <- leg_prop*height +rnorm( N , 0 , 0.02 ) # sim left leg as proportion + error
+leg_right <- leg_prop*height +rnorm( N , 0 , 0.02 )# sim right leg as proportion + error
+
+
+# combine into data frame
+d <- data.frame(height,leg_left,leg_right)
+
+
+```
+
+one could then assume that the beta coefficients that measures  the association of a leg with height to end up around the average height (10) divided by 45% of the average height => since a leg has the length of 45% body in general. THIS IS NOT THE CASE ...:
+```{r}
+m6.1 <- quap( alist(
+height ~ dnorm( mu , sigma ) ,
+ mu <- a + bl*leg_left + br*leg_right , 
+ a ~ dnorm( 10 , 100 ) ,
+ bl ~ dnorm( 2 , 10 ) ,
+ br ~ dnorm( 2 , 10 ) ,
+ sigma ~ dexp( 1 )
+),
+data=d ) 
+
+precis(m6.1)
+precis_plot(precis(m6.1))
+```
+the posterior and SD looks super of, even though the data seems right -?!??? this is because we are asking the wrong questions:
+in this case: *What is the value of knowing each predictor, after already knowing all of the other predictors?*
+
+this could indicate that the two parameters are highly correlated, lets look:
+```{r}
+post <- extract.samples(m6.1)
+plot( bl ~ br , post , col=col.alpha(rangi2,0.1) , pch=16 )
+```
+jep, super correlated ! 
+we want that when b is large, then br must be small.
+
+What has happened here is that since both leg variables contain almost exactly the same information, if you insist on including both in a model, then there will be a practically infinite number of combinations that produce the same predictions.
+
+*now lets look at the posterior distribution for the parameters and their sum*
+```{r}
+sum_blbr <- post$bl + post$br
+dens(sum_blbr, col=rangi2, lwd=2, xlab ="sum of post dist for left and right lef")
+```
+Intheleglengthexample,it’seasytoseethatincludingbothlegs in the model is a little silly. :)))))
+
+# now lets do this on REAL IMPORTANT SCIENCE DATA
+```{r}
+#back to milk:
+library(rethinking) 
+
+data(milk)
+d <- milk
+d$K <- scale( d$kcal.per.g ) 
+d$F <- scale( d$perc.fat )
+d$L <- scale( d$perc.lactose )
+```
+
+*focus: fat and lactose in percent, that we might use to model energy, which is kcal.per.g*
+
+These we will first model independently in two bivariate regressions:
+```{r}
+# kcal.per.g regressed on perc.fat
+m6.3 <- quap(
+  alist(
+  K ~ dnorm( mu , sigma ) ,
+  mu <- a + bF*F ,
+  a ~ dnorm( 0 , 0.2 ) , 
+  bF ~ dnorm( 0 , 0.5 ) , 
+  sigma ~ dexp( 1 )
+) , data=d )
+
+
+
+# kcal.per.g regressed on perc.lactose 
+m6.4 <- quap(
+  alist(
+  K ~ dnorm( mu , sigma ) , 
+  mu <- a + bL*L ,
+  a ~ dnorm( 0 , 0.2 ) , 
+  bL ~ dnorm( 0 , 0.5 ) , 
+  sigma ~ dexp( 1 )
+) , data=d )
+
+
+precis( m6.3 ) 
+precis( m6.4 )
+
+
+```
+Given the strong association of each predictor with the outcome, we might conclude that both variables are reliable predictors of total energy in milk, across species. 
+- *The more fat, the more kilocalories in the milk.*
+- *The more lactose, the fewer kilocalories in milk.*
+
+BUT NOW .... LETS COMBINE SO BOTH PREDICT IN ONE MODEL:
+```{r}
+m6.5 <- quap( alist(
+ K ~ dnorm( mu , sigma ) , 
+ mu <- a + bF*F + bL*L , 
+ a ~ dnorm( 0 , 0.2 ) , 
+ bF ~ dnorm( 0 , 0.5 ) , 
+ bL ~ dnorm( 0 , 0.5 ) , 
+ sigma ~ dexp( 1 )
+),
+data=d ) 
+
+precis( m6.5 )
+```
+the posterior means are not getting a lot closer to 0, while the standard deviations is much larger. 
+=> this is because they contain a lot of the same information .... 
+
+- so the variance the models described could essentially be described by just one of the predictors.  
+
+well check it out here:
+```{r}
+
+pairs( ~ kcal.per.g + perc.fat + perc.lactose , data=d , col=rangi2 )
+```
+*first row *= vertical: kcal, hori: perc.fat => so fat is possitively correlated, while perc.fat is negatively
+*second row* = vertical: perc.fat, hori: perc.lactose => These two variables are negatively correlated, and so strongly so that they are nearly redundant.
+*third row* = vertical = perc.lactose, hori = 
+
+
+
+# post-treatment bias
+
+```{r}
+set.seed(71)
+# number of plants 
+N <- 100
+
+# simulate initial heights 
+h0 <- rnorm(N,10,2)
+# assign treatments and simulate fungus and growth 
+treatment <- rep( 0:1 , each=N/2 )
+
+fungus <- rbinom( N , size=1 , prob=0.5 - treatment*0.4 ) 
+h1 <- h0 + rnorm(N, 5 - 3*fungus)
+
+# compose a clean data frame
+d <- data.frame( h0=h0 , h1=h1 , treatment=treatment , fungus=fungus ) 
+
+precis(d)
+```
+```{r}
+#now making priors:
+sim_p <- rlnorm( 1e4 , 0 , 0.25 ) 
+precis( data.frame(sim_p) )
+```
+
+So this prior expects anything from 40% shrinkage up to 50% growth. 
+modelling plants, fungus, treatmants etc:
+```{r}
+m6.7 <- quap( alist(
+h1 ~ dnorm( mu , sigma ),
+mu <- h0 * p,
+p <- a + bt*treatment + bf*fungus, a ~ dlnorm( 0 , 0.2 ) ,
+bt ~ dnorm( 0 , 0.5 ),
+bf ~ dnorm( 0 , 0.5 ),
+sigma ~ dexp( 1 )
+), data=d ) 
+
+precis(m6.7)
+```
+=> *the treatment is not associated with growth!*
+The problem is that fungus is mostly a consequence of treatment. This is to say that fungus is a post-treatment variable. 
+
+#### making the POST TREATMENT MODEL:
+```{r}
+m6.8 <- quap( alist(
+h1 ~ dnorm( mu , sigma ), mu <- h0 * p,
+p <- a + bt*treatment,
+a ~ dlnorm( 0 , 0.2 ), 
+bt ~ dnorm( 0 , 0.5 ), 
+sigma ~ dexp( 1 )
+), data=d )
+
+precis(m6.8)
+```
+Now we see that the impact of fungus is clearly positive, as it should be.
+
+```{r}
+##### in DAG LANGUAGE:
+library(dagitty)
+plant_dag <- dagitty( "dag {
+H_0 -> H_1 
+F -> H_1 
+T -> F
+}")
+
+coordinates( plant_dag ) <- list( x=c(H_0=0,T=2,F=1.5,H_1=1) ,y=c(H_0=0,T=0,F=0,H_1=0) )
+
+drawdag( plant_dag )
+```
+*So the treatment T influences the presence of fungus F which influences plant height at time 1, H1. Plant height at time 1 is also influenced by plant height at time 0, H0*
+
+##### conditional independencies
+```{r}
+impliedConditionalIndependencies(plant_dag)
+```
+this gives all three independencies.
+
+but could this actually be explained by a hidden variable: *moisture*???
+lets try model it:
+```{r}
+set.seed(71)
+N <- 1000
+h0 <- rnorm(N,10,2)
+treatment <- rep( 0:1 , each=N/2 )
+M <- rbern(N)
+fungus <- rbinom( N , size=1 , prob=0.5 - treatment*0.4 + 0.4*M )
+h1 <- h0 + rnorm( N , 5 + 3*M )
+d2 <- data.frame( h0=h0 , h1=h1 , treatment=treatment , fungus=fungus )
+
+#trying the same model again but with the moisture:
+m6.8_1 <- quap( alist(
+h1 ~ dnorm( mu , sigma ), mu <- h0 * p,
+p <- a + bt*treatment,
+a ~ dlnorm( 0 , 0.2 ), 
+bt ~ dnorm( 0 , 0.5 ), 
+sigma ~ dexp( 1 )
+), data=d2 )
+
+precis(m6.8_1)
+```
+You’ll see that including fungus again confounds inference about the treatment, this time by making it seem like it helped the plants, even though it had no effect.
+
+
+### COLLIDERS:
+this is investigating whether happiness, age and marriage are causaly correlated. 
+```{r}
+library(rethinking)
+d <- sim_happiness( seed=1977 , N_years=1000 ) 
+precis(d)
+```
+
+```{r}
+d2 <- d[ d$age>17 , ] # only adults 
+d2$A <- ( d2$age - 18 ) / ( 65 - 18 ) #this leaves A on an arbitrery scale on 0 and 1 - 1 being 65, 0 being 18.
+
+
+d2$mid <- d2$married + 1 
+
+#making the model that gives the posteriors
+m6.9 <- quap(
+alist(
+happiness ~ dnorm( mu , sigma ), mu <- a[mid] + bA*A,
+a[mid] ~ dnorm( 0 , 1 ),
+bA ~ dnorm( 0 , 2 ),
+sigma ~ dexp(1)
+) , data=d2 ) 
+
+precis(m6.9,depth=2)
+```
+The model is quite sure that *age is negatively associated with happiness.* We’d like to compare the inferences from this model to a model that omits marriage status
+
+```{r}
+m6.10 <- quap( alist(
+happiness ~ dnorm( mu , sigma ), mu <- a + bA*A,
+a ~ dnorm( 0 , 1 ),
+bA ~ dnorm( 0 , 2 ),
+sigma ~ dexp(1) ) , 
+data=d2 )
+
+
+precis(m6.10)
+```
+This model, in contrast, finds no association between age and happiness.
+
+*THIS IS HOWEVER ALL JUST STATISTICAL ASSOCIATIONS, THAT HAS NO CAUSAL HOLD, SINCE THE COLLIDER MARRIAGE IS THE ACTUAL EXPLANATION OF THE LINK*
+=> cause once we know if people are marriaged or not there age means nothing.
+
+
+# HAUNTED DAGS
+are their variables outside our graph we dont model, and thus make wrong causalities??????? 
+example: education, depending on grandparents, parents and children:
+```{r}
+#simulation:
+N <- 200 # number of grandparent-parent-child triads 
+b_GP <- 1 # direct effect of G on P
+b_GC <- 0 # direct effect of G on C - so no from grandparents to children 
+b_PC <- 1 # direct effect of P on C
+b_U<-2 #directeffectofUonPandC
+```
+these parameters functions like slopes in a regression model
+
+```{r}
+#using the slope to draw random observations:
+set.seed(1)
+U <- 2*rbern( N , 0.5 ) - 1
+G <- rnorm( N )
+P <- rnorm( N , b_GP*G + b_U*U )
+C <- rnorm( N , b_PC*P + b_GC*G + b_U*U ) 
+d <- data.frame( C=C , P=P , G=G , U=U )
+
+```
+
+Since some of the total effect of grandparents passes through parents, we realize we need to control for parents.  ===>
+```{r}
+#a regression of C on P on G:
+m6.11 <- quap( alist(
+  C ~ dnorm( mu , sigma ), 
+  mu <- a + b_PC*P + b_GC*G,
+  a ~ dnorm( 0 , 1 ), 
+  c(b_PC,b_GC) ~ dnorm( 0 , 1 ), 
+  sigma ~ dexp( 1 )
+), data=d )
+
+precis(m6.11)
+```
+The inferred effect of parents looks too big, almost twice as large as it should be. That isn’t surprising. Some of the correlation between P and C is due to U, and the model doesn’t know about U.
+
+
+The unmeasured U makes *P a collider,* and *conditioning on P produces collider bias*. So what can we do about this? You have to measure U. *Here’s the regression that conditions also on U:*
+
+```{r}
+m6.12 <- quap( alist(
+C ~ dnorm( mu , sigma ),
+mu <- a + b_PC*P + b_GC*G + b_U*U, 
+a ~ dnorm( 0 , 1 ), 
+c(b_PC,b_GC,b_U) ~ dnorm( 0 , 1 ), 
+sigma ~ dexp( 1 )
+), data=d ) 
+
+
+precis(m6.12)
+```
+now these are the slopes we simulated with ...
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

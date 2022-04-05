@@ -1,0 +1,165 @@
+---
+title: "WEEK 4 CLASS"
+author: "Laura W. Paaby"
+date: "2/24/2022"
+output: html_document
+---
+```{r}
+#LOADING LIBRARIES AND DATA:
+pacman::p_load(rethinking, tidyverse)
+
+data("foxes")
+precis(foxes)
+```
+
+```{r}
+# making dag:
+library(dagitty)
+
+dag_fox <- dagitty( "dag {
+  area -> avgfood 
+  avg -> groupsize 
+  groupsize -> weight
+  avgfood -> weight
+}")
+
+coordinates(dag_fox) <- list(x=c(area = 0, avgfood=-1,weigth=0, groupsize=1) , y=c(area=-1,avgfood=0,groupsize = 0,weight=1)) 
+
+drawdag( dag_fox )
+```
+
+
+## 1. Model to infer causal influence of area on weight 
+```{r}
+# standardizing -> here it is done by scale, which means we minus the mean and divides by standard deviation
+foxes$weight <- scale(foxes$weight)
+foxes$area <- scale(foxes$area)
+foxes$groupsize <- scale(foxes$groupsize)
+foxes$avgfood <- scale(foxes$avgfood)
+
+
+
+#making the models:
+#make a model that can predict each height for each weights given the data:
+model <- quap(alist(#we are now making a list of priors
+    weight ~ dnorm(mu, sigma), 
+    mu <- a + b*area,
+    a ~ dnorm(0,0.2), #we have standardize 
+    b ~ dlnorm(0,0.2), #slope -> so how much do we go up in cm for each kg of weight
+    sigma ~ dexp(1)
+), data = foxes)
+
+
+priors <- extract.prior(model)
+
+# plotting the priors 
+mu <- link(model , post=priors , data=list( area=c(-2,2) ) )
+plot( NULL , xlim=c(-2,2) , ylim=c(-2,2), xlab="area std" , ylab="weight std" )
+for ( i in 1:50 ) lines( c(-2,2) , mu[i,] , col=col.alpha("black",0.4) )
+```
+*this indicates shitty priors (when a(0,2) and b ~ no(0.5)) :D, so now we just continue to change priors => this is what we end up with*
+
+```{r}
+# making the prior predictive simululation:
+area_seq <- seq( from=-3 , to=3.2 , length.out=30)
+mu <- link( model , data=list(area=area_seq) )
+mu_model_prior_mean <- apply(mu, 2, mean)
+mu_model_prior_PI <- apply(mu,2,PI)
+
+#plotting 
+plot( weight ~ area , data=foxes ,col=rangi2 )
+lines(area_seq, mu_model_prior_mean, lwd=2)
+shade(mu_model_prior_PI, area_seq)
+
+precis(model)
+#gives the mean of the posterior distribution:
+```
+# TASK 2
+
+```{r}
+#MAKING NEW MODEL WITH AVG FOOD:
+model_food <- quap(alist(#we are now making a list of priors
+    weight ~ dnorm(mu, sigma), 
+    mu <- a + b_food*avgfood,
+    a ~ dnorm(0,0.2), #we have standardize 
+    b_food ~ dlnorm(0.2),
+    sigma ~ dexp(1)
+), data = foxes)
+
+
+
+# making the prior predictive simululation:
+food_seq <- seq( from=-3 , to=3.2 , length.out=30)
+mu_food <- link( model_food , data=list(avgfood=food_seq) )
+food_prior_mean <- apply(mu_food, 2, mean)
+food_prior_PI <- apply(mu_food,2,PI)
+
+#plotting 
+plot( weight ~ avgfood , data=foxes ,col=rangi2 )
+lines(food_seq, food_prior_mean, lwd=2)
+rethinking::shade(food_prior_PI, food_seq)
+
+precis(model_food)
+#gives the mean of the posterior distribution:
+
+```
+
+
+
+```{r}
+#both food and area:
+model_food_area <- quap(alist(#we are now making a list of priors
+    weight ~ dnorm(mu, sigma), 
+    mu <- a + b_area*area + b_food*avgfood,
+    a ~ dnorm(0,0.2), #we have standardize 
+    b_area ~ dlnorm(0,0.2),
+    b_food ~ dlnorm(0.2),
+    sigma ~ dexp(1)
+), data = foxes)
+
+
+# making the prior predictive simululation:
+food_seq <- seq( from=-3 , to=3.2 , length.out=30)
+mu_all <- link( model_food , data=list(avgfood=food_seq, area = area_seq) )
+all_prior_mean <- apply(mu_all, 2, mean)
+all_prior_PI <- apply(mu_all,2,PI)
+
+#plotting 
+plot( weight ~ avgfood + area , data=foxes ,col=rangi2 )
+lines(food_seq, food_prior_mean, lwd=2)
+lines(area_seq,mu_model_prior_mean , lwd=2)
+
+precis(model_food_area)
+#gives the mean of the posterior distribution:
+```
+
+```{r}
+plot(coeftab(model, model_food, model_food_area), par=c("b","b_food") )
+```
+
+
+# Exercise 3
+```{r}
+model_food_groupsize <- quap(alist(#we are now making a list of priors
+    weight ~ dnorm(mu, sigma), 
+    mu <- a + b_group*groupsize + b_food*avgfood,
+    a ~ dnorm(0,0.2), #we have standardize 
+    b_group ~ dnorm(0,0.2), #this is now no logged
+    b_food ~ dlnorm(0.2),
+    sigma ~ dexp(1)
+), data = foxes)
+
+
+#making the posterior - this by 
+post_food_group  <- extract.samples(model_food_groupsize)
+
+mu.link <- function(weight) post_food_group$a + post_food_group$b_food*(weight) 
+
+weight.seq <- seq( from=25 , to=70 , by=1)
+mu <- sapply( weight.seq , mu.link )
+mu.mean <- apply( mu , 2 , mean )
+mu.CI <- apply( mu , 2 , PI , prob=0.89 )
+```
+
+
+

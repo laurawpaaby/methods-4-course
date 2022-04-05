@@ -1,0 +1,328 @@
+---
+title: "chap 9"
+author: "LAURA PAAABY"
+date: "3/30/2022"
+output: html_document
+---
+
+this is all about the ruggednes of countries in Africa. 
+
+```{r}
+library(rethinking)
+data(rugged)
+d <- rugged
+
+# make log version of outcome
+d$log_gdp <- log( d$rgdppc_2000 )
+
+# extract countries with GDP data
+dd <- d[ complete.cases(d$rgdppc_2000) , ]
+
+# rescale variables
+dd$log_gdp_std <- dd$log_gdp / mean(dd$log_gdp)
+dd$rugged_std <- dd$rugged / max(dd$rugged)
+##### we dont use Z scores here, since 0 rugged is meaningful (0 ruggedness = min, 1 = max)
+
+head(dd)
+```
+
+### Our bayesian model 
+log(yi) ∼ Normal(μi, σ)
+μi = α + β(ri −¯r)
+
+where yi is GDP for nation i, ri is terrain ruggedness for nation i, and ¯r is the average ruggedness
+in the whole sample (0.215).
+
+```{r}
+#making the model
+m8.1 <- quap(alist(
+  log_gdp_std ~ dnorm( mu , sigma ) ,
+  mu <- a + b*( rugged_std - 0.215 ) ,
+  a ~ dnorm( 1 , 0.1 ) ,
+  b ~ dnorm( 0 , 0.3 ) ,
+  sigma ~ dexp( 1 )
+) , data=dd )
+
+
+### checking the priors 
+set.seed(7) 
+prior <- extract.prior( m8.1 )
+
+
+# set up the plot dimensions
+plot( NULL , xlim=c(0,1) , ylim=c(0.5,1.5) ,
+xlab="ruggedness" , ylab="log GDP" )
+abline( h=min(dd$log_gdp_std) , lty=2 )
+abline( h=max(dd$log_gdp_std) , lty=2 )
+
+# draw 50 lines from the prior
+rugged_seq <- seq( from=-0.1 , to=1.1 , length.out=30 )
+
+mu <- link( m8.1 , post=prior , data=data.frame(rugged_std=rugged_seq) )
+for ( i in 1:50 ) lines( rugged_seq , mu[i,] , col=col.alpha("black",0.3) )
+```
+
+we must update our model to ensure that nations outside Africa has a different slope then those in Africa:
+mu must thus be changed (however we shall see how this is not enough )
+
+μi = α_cid[i] + β(ri −¯r)
+where cid is an index variable for continent id (1=Africa, 2=others)
+
+```{r}
+# make variable to index Africa (1) or not (2)
+dd$cid <- ifelse( dd$cont_africa==1 , 1 , 2 )
+```
+
+now adding this to the model:
+```{r}
+m8.2 <- quap(alist(
+  log_gdp_std ~ dnorm( mu , sigma ) ,
+  mu <- a[cid] + b*( rugged_std - 0.215 ) ,
+  a[cid] ~ dnorm( 1 , 0.1 ) ,
+  b ~ dnorm( 0 , 0.3 ) ,
+  sigma ~ dexp( 1 )
+) , data=dd )
+
+compare(m8.1, m8.2)
+```
+the continent variable seems to be picking up some important association in the sample. ^^^^
+
+```{r}
+precis(m8.2, depth = 2)
+```
+
+
+The parameter a[1] is the intercept for African nations. It seems reliably lower than a[2].
+
+
+#### finding the posterior contrast 
+```{r}
+#getting the posteriors and the difference made by the a parameters in the model
+post_m82 <- extract.samples(m8.2)
+
+contrast_a1_a2 <- post_m82$a[,1] - post_m82$a[,2]
+
+dens(contrast_a1_a2) #looking at the density for the numbers => these are all below 0 meaning that the a[2] variable - not-african-nations has the highest posteriors. 
+PI(contrast_a1_a2)
+
+```
+
+```{r}
+rugged_seq <- seq(-0.1, 1.1, length.out = 30)
+
+ 
+### computing mu over samples,  fixing continent index= 2
+mu.NotAfrica <- link(m8.2, data = data.frame(cid=2, rugged_std = rugged_seq ))
+
+### computing mu over samples fixing continent index= 1
+mu.Africa <- link(m8.2, data = data.frame(cid=1, rugged_std = rugged_seq ))
+
+
+# summarize to means and intervals
+mu.NotAfrica_mu <- apply( mu.NotAfrica , 2 , mean )
+mu.NotAfrica_ci <- apply( mu.NotAfrica , 2 , PI , prob=0.97 )
+mu.Africa_mu <- apply( mu.Africa , 2 , mean )
+mu.Africa_ci <- apply( mu.Africa , 2 , PI , prob=0.97 )
+
+
+
+#Plot
+plot(dd$rugged_std , dd$log_gdp_std , pch=16 , col=dd$cid, xlim = c(0,1), ylim = c(0.5,1.3), xlab = "ruggedness", ylab = "log GDP", main = "No World m8.4")
+lines(rugged_seq , mu.NotAfrica_mu, col=col.alpha("red",0.3))
+shade(mu.NotAfrica_ci, rugged_seq, col=col.alpha("red",0.3))
+lines(rugged_seq , mu.Africa_mu, col=col.alpha("blue",0.3))
+shade(mu.Africa_ci, rugged_seq, col=col.alpha("blue",0.3))
+#points(mu.Africa_ci, col=col.alpha("blue",0.3)) - i cant figure out which points should be plotted to match the books
+
+```
+
+oki so now looking at the plot, we see how the different slopes of both African nations and not have a weak negative relationship between economy and ruggedness. - the Africans being blue has a slightly lower in general economy, thus the two slopes are just parallel. 
+- SO *the only thing we get here is that African nations has a lower average* is doesn't do anything to the slope of the line. (they are parallel)
+
+
+lets now add *INTERACTIONS* and see if that changes anything...
+
+```{r}
+m8.3 <- quap(alist(
+  log_gdp_std ~ dnorm( mu , sigma ) ,
+  mu <- a[cid] + b[cid]*( rugged_std - 0.215 ) , #we see how the interaction is here between the ruggedness-average_ruggedness*continent_index
+  a[cid] ~ dnorm( 1 , 0.1 ) ,
+  b[cid] ~ dnorm( 0 , 0.3 ) ,
+  sigma ~ dexp( 1 )
+) , data=dd )
+
+precis( m8.3 , depth=2 )
+```
+comparing this models to the models previously made - here we use PSIS as the function instead of WAIC, i could imagine that this is because WAIC just favors the most complex model with loose priors. 
+```{r}
+compare(m8.1, m8.2, m8.3, func=PSIS)
+```
+Model family *m8.3 has more than 95% of the model weigh*t. That’s very strong support for including the interaction effect, if *prediction* is our goal. But the modicum of weight given to m8.2 suggests that the posterior means for the slopes in m8.3 are a little *overfit.*
+
+*Remember that these comparisons are not reliable guides to causal inference. They just tell us how important features are for prediction*
+
+lets plot the PSIS Pareto K values to see if we can notice some influential contries:
+```{r}
+plot(PSIS(m8.3, pointwise = TRUE)$k)
+```
+
+```{r}
+#### we’ll display nations in Africa and overlay the posterior mean regression line and the 97% interval of that line.
+
+#PLOTTING FOR INSIDE AFRICA cid  =1
+d.A1 <- dd[ dd$cid==1 , ]
+
+plot( d.A1$rugged_std , d.A1$log_gdp_std , pch=16 , col=rangi2 ,
+xlab="ruggedness (standardized)" , ylab="log GDP (as proportion of mean)" , xlim=c(0,1) )
+
+mu <- link( m8.3 , data=data.frame( cid=1 , rugged_std=rugged_seq ) )
+mu_mean <- apply( mu , 2 , mean )
+mu_ci <- apply( mu , 2 , PI , prob=0.97 )
+lines( rugged_seq , mu_mean , lwd=2 )
+shade( mu_ci , rugged_seq , col=col.alpha(rangi2,0.3) )
+mtext("African nations")
+
+
+
+####  plot non-Africa - cid=2
+d.A0 <- dd[ dd$cid==2 , ]
+plot( d.A0$rugged_std , d.A0$log_gdp_std , pch=1 , col="black" ,
+xlab="ruggedness (standardized)" , ylab="log GDP (as proportion of mean)" ,
+xlim=c(0,1) )
+mu <- link( m8.3 , data=data.frame( cid=2 , rugged_std=rugged_seq ) )
+mu_mean <- apply( mu , 2 , mean )
+mu_ci <- apply( mu , 2 , PI , prob=0.97 )
+lines( rugged_seq , mu_mean , lwd=2 )
+shade( mu_ci , rugged_seq )
+mtext("Non-African nations")
+```
+
+Finally, *the slope reverses direction inside and outside of Africa.*
+=> And because we achieved this inside a single model, we could statistically evaluate the value of this reversal.
+
+
+so far ^^^^ we have examined whether the association between ruggedness and log GDP of a nation depends on the nation being African. <= we have so far used continent id as independent
+
+Now we turn this around and try to examined: *the association of being in Africa with log GDP depending on ruggedness.* <= now we use ruggedness as being independent.
+====> ruggedness are now held a constant, while we compute the difference between being inside/outside Africa. 
+
+```{r}
+rugged_seq <- seq(from=-0.2,to=1.2,length.out=30)
+muA <- link( m8.3 , data=data.frame(cid=1,rugged_std=rugged_seq) )
+muN <- link( m8.3 , data=data.frame(cid=2,rugged_std=rugged_seq) )
+delta <- muA - muN
+
+
+####  PLOT TIME - for some reason this gives me empty plots .... 
+plot( d.A0$rugged_std , d.A0$log_gdp_std , pch=1 , col="black", xlab="ruggedness (standardized)" , ylab="Ecxpected log GDP difference" ,
+xlim=c(0,1), ylim=c(-0.4,0.3) )
+mu_meanA <- apply( muA , 2 , mean )
+mu_ciA <- apply( muA , 2 , PI , prob=0.97 )
+lines( rugged_seq , mu_meanA , lwd=2 )
+abline(h=0, lty =2)
+shade( mu_ciA , rugged_seq )
+```
+dunno why it doesn't give me a shade and line here .... 
+Below the horizontal dashed line, African nations have lower
+expected GDP. This is the case for most terrain ruggedness values. 
+
+
+
+
+
+
+
+# CONTINUOUS INTERACTIONS 
+so far we have only looked at a categorical interaction w. CID - now lets take it the step further:
+```{r}
+library(rethinking) 
+data(tulips)
+d <- tulips
+str(d)
+```
+blooms = outcome we wish to predict
+water + shade = predictor variables
+
+DAG: 
+W --> B <-- S
+B=f(W,S)
+
+Since both light and water help plants grow and produce blooms, it stands to reason that the independent effect of each will be to produce bigger blooms. But we’ll also be interested in the interaction between these two variables.
+
+
+# model 1 => both water and shade but *no* interaction
+Bi ∼ Normal(μi, σ)
+μi = α + βW(Wi − mean(W)) + βS(Si − mean(S))
+```{r}
+#center Water and Shade and scale b by its max:
+d$blooms_std <- d$blooms / max(d$blooms)
+d$water_cent <- d$water - mean(d$water)
+d$shade_cent <- d$shade - mean(d$shade)
+```
+los modellos;
+```{r} 
+### NO INTERACTION MODEL
+m8.4 <- quap(alist(
+  blooms_std ~ dnorm( mu , sigma ) ,
+  mu <- a + bw*water_cent + bs*shade_cent ,
+  a ~ dnorm( 0.5 , 0.25 ) ,
+  bw ~ dnorm( 0 , 0.25 ) ,
+  bs ~ dnorm( 0 , 0.25 ) ,
+  sigma ~ dexp( 1 )
+) , data=d )
+
+# INTERACTION TIME BABY 
+m8.5 <- quap(alist(
+  blooms_std ~ dnorm( mu , sigma ) ,
+  mu <- a + bw*water_cent + bs*shade_cent + bws*water_cent*shade_cent ,
+  a ~ dnorm( 0.5 , 0.25 ) ,
+  bw ~ dnorm( 0 , 0.25 ) ,
+  bs ~ dnorm( 0 , 0.25 ) ,
+  bws ~ dnorm( 0 , 0.25 ) ,
+  sigma ~ dexp( 1 )
+) , data=d )
+```
+
+soooo model 2 => both water and shade and *interaction*
+
+#### plotting the interactions 
+```{r}
+### THIS IS WHEN NO INTERACTIONS
+par(mfrow=c(1,3)) # 3 plots in 1 row
+for ( s in -1:1 ) {
+
+idx <- which( d$shade_cent==s )
+plot( d$water_cent[idx] , d$blooms_std[idx] , xlim=c(-1,1) , ylim=c(0,1) ,
+xlab="water" , ylab="blooms" , pch=16 , col=rangi2 )
+mu <- link( m8.4 , data=data.frame( shade_cent=s , water_cent=-1:1 ) )
+for ( i in 1:20 ) lines( -1:1 , mu[i,] , col=col.alpha("black",0.3) )
+}
+```
+
+```{r}
+# WITH INTERACTIONS
+par(mfrow=c(1,3)) # 3 plots in 1 row
+for ( s in -1:1 ) {
+
+idx <- which( d$shade_cent==s )
+plot( d$water_cent[idx] , d$blooms_std[idx] , xlim=c(-1,1) , ylim=c(0,1) ,
+xlab="water" , ylab="blooms" , pch=16 , col=rangi2 )
+mu <- link( m8.5 , data=data.frame( shade_cent=s , water_cent=-1:1 ) )
+for ( i in 1:20 ) lines( -1:1 , mu[i,] , col=col.alpha("black",0.3) )
+}
+```
+=> Now the model believes that the effect of water decreases as shade increases.
+
+**EXPLANATION**
+- At low light levels, water can’t have much of an effect,because the tulips don’t have enough light to produce blooms. At higher light levels, water can matter more, because the tulips have enough light to produce blooms.
+- At very high light levels, light is no longer limiting the blooms, and so water can have a much more dramatic
+impact on the outcome. 
+- The same explanation works symmetrically for shade. If there isn’t enough light, then more water hardly helps.
+
+
+
+
+
+
+
+

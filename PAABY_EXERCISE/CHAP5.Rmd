@@ -1,0 +1,608 @@
+---
+title: "CHAP5"
+author: "Laura W. Paaby"
+date: "2/22/2022"
+output: html_document
+---
+# SPURIOUS ASSOCIATIONS
+
+TRYING TO UNDERSTAND the correlation between divorce rate and marriage rate
+```{r}
+# load data and copy 
+library(rethinking) 
+data(WaffleDivorce)
+d <- WaffleDivorce
+
+# standardize variables
+d$A <- scale( d$MedianAgeMarriage ) 
+d$D <- scale( d$Divorce )
+### this leave the intercept alpha and the predictor to be very close.
+
+```
+
+THE *LINEAR* REGRESSION EXPLANING THE CORRELATION ATM:
+Di ∼ Normal(μi, σ) 
+μi =α+β_A*A_i
+α ∼ Normal(0, 0.2) 
+βA ∼ Normal(0, 0.5) (prior slope = if B_A=1, then a change of 1 sd in age at marriage is associated likewikse with a change of one sd of divorce...)
+σ ∼ Exponential(1)
+
+A = age of marriage, D = divorce rate
+
+*We inspect the standard deviation of AGE of marriage, since our variables are standardized and the sd of them thus close *
+```{r}
+ sd( d$MedianAgeMarriage )
+
+```
+So when βA = 1, a change of 1.2 years in median age at marriage is associated with a full standard deviation change in the outcome variable. ==> *an extremely strong relationship*
+
+##### this seem crazy - lets simulate posteriors from the  priors
+```{r}
+## THE PRIORS !!!!!!!! 
+m5.1 <- quap( alist(
+  D ~ dnorm( mu , sigma ) , 
+  mu <- a + bA * A , 
+  a ~ dnorm( 0 , 0.2 ) , #intercept
+  bA ~ dnorm( 0 , 0.5 ) , #slope for age
+  sigma ~ dexp( 1 )
+) , data = d )
+
+
+
+## THE SIMULATION  FROM THE PRIORS
+set.seed(10)
+prior <- extract.prior( m5.1 )
+mu <- link( m5.1 , post=prior , data=list( A=c(-2,2) ) )
+
+## PLOTTING THE SIMULATED
+plot(NULL, xlim=c(-2,2) , ylim=c(-2,2))
+for ( i in 1:50 ) lines( c(-2,2) , mu[i,] , col=col.alpha("black",0.4) )
+```
+Oki so in the code above we first make a quadratic fit of the model priors, then we simulate more priors from those, to see how they behave - as the plot shows, quite bad.
+*the x = median age marriage (std)*
+*the y = divorce rate (std)*
+
+##### The posterior predictions:
+```{r}
+# compute percentile interval of mean
+A_seq <- seq( from=-3 , to=3.2 , length.out=30 ) 
+mu <- link( m5.1 , data=list(A=A_seq) )
+mu.mean <- apply( mu , 2, mean)
+                  
+mu.PI <- apply( mu , 2, PI)
+
+
+# plot it all
+plot( D ~ A , data=d , col=rangi2)
+lines( A_seq , mu.mean, lwd=2) 
+shade( mu.PI , A_seq )
+
+```
+```{r}
+# inspecting posterior for betha age: 
+precis(m5.1)
+```
+=> we here see how the posterior is negative: -0.57
+*Model m5.1, the regression of D on A, tells us only that the total influence of age at marriage is strongly negative with divorce rate. *
+
+
+```{r}
+# now this is for marriage and age:
+d$M <- scale( d$Marriage ) 
+
+m5.2 <- quap(alist(
+  D ~ dnorm( mu , sigma ) , 
+  mu <- a + bM * M ,
+  a ~ dnorm( 0 , 0.2 ) , 
+  bM ~ dnorm( 0 , 0.5 ) , 
+  sigma ~ dexp( 1 )
+) , data = d )
+
+precis(m5.2)
+```
+this is now positive, but not as strong as the one before.
+*We hus know from m5.2 that marriage rate is positively associated with divorce rate. *
+
+
+=> this however does not tell us much about which one is the better predictor = it does not tell us that the path of Marriage --> divorce = positive. 
+
+#making the dag:
+```{r}
+library(dagitty)
+dag5.1 <- dagitty( "dag {
+A -> D 
+A -> M 
+M -> D
+}")
+
+coordinates(dag5.1) <- list( x=c(A=0,D=1,M=2) , y=c(A=0,D=1,M=0) ) 
+drawdag( dag5.1 )
+```
+There are three observed variables in play: divorce rate (D), marriage rate (M), and the median age at marriage (A) in each State. 
+
+the only implication that differs between these DAGs is the last one: D ⊥ M|A.
+=> *Divorce is independent on Marriage given (or after being conditioning on) marriage age*
+To test this implication, we need a statistical model that conditions on A, so we can see whether that renders D independent of M. .... 
+
+# TESTIBALE IMPLICATIONS
+```{r}
+# checking for associations: => examples
+cor(d$Marriage, d$MedianAgeMarriage)
+cor(d$Marriage, d$Divorce)
+```
+
+but this doesn't help much - we must answer the simple descriptive question:
+> Is there any additional value in knowing a variable, once I already know all of the other predictor variables?< 
+
+this is done via MULTIPLE REGRESSION: causee once you fit a multiple regression to predict divorce using both marriage rate and age at marriage, the model addresses the questions:
+  1.  After I already know marriage rate, what additional value is there in also knowing age at marriage?
+  2. After I already know age at marriage,what additional value is there in also knowing marriage rate?
+
+*LE MODELLOS* => that then must be applied to the divorce data:
+Di ∼ Normal(μi, σ) => probability of data
+μi = α + βMMi + βAAi => linar model my
+α ∼ Normal(0, 0.2) => prior for alpha - intercept
+βM ∼ Normal(0, 0.5) => prior for beta marriage - slope 
+βA ∼ Normal(0, 0.5) => prior for beta age at marriage - slope
+σ ∼ Exponential(1) => prior for sigma, the error 
+
+>>>μi = α + βMMi + βAAi?<<<<
+A State’s divorce rate can be a function of its marriage rate or its median age at marriage
+
+=> this means that the expected outcome for any State with marriage rate Mi and median age at marriage Ai is the sum of three independent terms. 
+  *first* term = α. Every State gets this. 
+  *second* term = the product of the marriage rate, Mi, and the coefficient, βM,     that measures the association between marriage rate and divorce rate. 
+  The *third* term is similar, but for the association with median age at marriage instead.
+
+
+#### approxing the posterior:
+```{r}
+m5.3 <- quap( alist(
+  D ~ dnorm( mu , sigma ) ,
+  mu <- a + bM*M + bA*A , 
+  a ~ dnorm( 0 , 0.2 ) ,
+  bM ~ dnorm( 0 , 0.5 ) , 
+  bA ~ dnorm( 0 , 0.5 ) , 
+  sigma ~ dexp( 1 )
+) , data = d ) 
+
+precis( m5.3 )
+```
+=> bM = the posterior *mean* for marriage rate is now close to 0 (-0.07), with a loooot of probability of both sides of zero - the *intervals*. Meanwhile bA is unchanged:
+
+```{r}
+coeftab_plot(coeftab(m5.1,m5.2,m5.3), par=c("bA","bM"))
+```
+this vizualises all three posterior distribution for the models and how their slopes for the parameters B_a and B_M changes: the posterior means shown by the points and 89% combatibility interval by the horizontal lines. 
+*==**Once we know median age at marriage for a State, there is little or no addi- tional predictive power in also knowing the rate of marriage in that State**
+
+
+## PLOTS !!!!!!! 
+A predictor variable residual is the average prediction error when we use all of the other predictor variables to model a predictor of interest
+
+ The benefit of computing these things is that, once plotted against the outcome, we have a bivariate regression of sorts that has already “controlled” for all of the other predictor variable
+
+
+```{r}
+# MARRIAGE RATE AND AGE AT MARRYING
+
+m5.4 <- quap( alist(
+  M ~ dnorm( mu , sigma ) , 
+  mu <- a + bAM * A ,
+  a ~ dnorm( 0 , 0.2 ) ,
+  bAM ~ dnorm( 0 , 0.5 ) , 
+  sigma ~ dexp( 1 )
+) , data = d )
+
+
+# COMPUTING RESIDUALS:
+mu <- link(m5.4)
+mu_mean <- apply(mu, 2, mean)
+mu_resid <- d$M-mu_mean
+```
+
+when *mu_resid > 0*, the observed rate was in excess of what the model exåpects, given the median age at marriage in that state ==> high marriage rates for their median age of marriage.
+when *mu_resid < 0* the observed rate was under the expectations. ==> low rates for median age 
+
+>POSTERIOR PREDICTIONS PLOT:
+
+```{r}
+# call link without specifying new data # so it uses original data
+mu <- link( m5.3 )
+# summarize samples across cases 
+mu_mean <- apply( mu , 2 , mean ) 
+mu_PI <- apply( mu , 2 , PI )
+# simulate observations
+# again no new data, so uses original data 
+D_sim <- sim( m5.3 , n=1e4 )
+D_PI <- apply( D_sim , 2 , PI )
+
+# PLOTTING:
+plot( mu_mean ~ d$D , col=rangi2 , ylim=range(mu_PI) , xlab="Observed divorce" , ylab="Predicted divorce" )
+abline( a=0 , b=1 , lty=2 )
+for ( i in 1:nrow(d) ) lines( rep(d$D[i],2) , mu_PI[,i] , col=rangi2 )
+identify( x=d$D , y=mu_mean , labels=d$Loc ) #this should give the outlying labels but doesn't wokr
+```
+We see how some states are quite far of the model ... 
+
+# AND THEN AS BONUS .... MAKING A COUNTERFACTUAL WAFFLE PLOT:
+
+```{r}
+data(WaffleDivorce) 
+d <- list()
+d$A <- standardize(WaffleDivorce$MedianAgeMarriage)
+d$D <- standardize(WaffleDivorce$Divorce)
+d$M <- standardize(WaffleDivorce$Marriage)
+  
+  
+m5.3_A <- quap( 
+  alist(
+  ## A -> D <- M
+  D ~ dnorm( mu , sigma ) , 
+  mu <- a + bM*M + bA*A , 
+  a ~ dnorm( 0 , 0.2 ) , bM ~ dnorm( 0 , 0.5 ) ,
+  bA ~ dnorm( 0 , 0.5 ) , 
+  sigma ~ dexp( 1 ),
+  ## A -> M
+  M ~ dnorm( mu_M , sigma_M ), mu_M <- aM + bAM*A,
+  aM ~ dnorm( 0 , 0.2 ),
+  bAM ~ dnorm( 0 , 0.5 ), sigma_M ~ dexp( 1 )
+) , data = d )
+
+
+precis(m5.3_A)
+```
+
+we here see how M and A are strongly negatively correlated. => thus manipulating A reduces M. 
+So now we simulate what happens if we manipulate A
+
+```{r}
+#preparing by making a list of A's
+ A_seq <- seq( from=-2 , to=2 , length.out=30 ) 
+
+#prep data
+sim_data <- data.frame(A=A_seq)
+
+#simulate M and then D, using A_seq
+s <- sim( m5.3_A , data=sim_data , vars=c("M","D") )
+
+# display counterfactual predictions
+plot( sim_data$A , colMeans(s$D) , ylim=c(-2,2) , type="l" ,
+  xlab="manipulated A" , ylab="counterfactual D" ) 
+shade( apply(s$D,2,PI) , sim_data$A )
+mtext( "Total counterfactual effect of A on D" )
+```
+
+for another DAG:
+now simulating the effect of manipulating M:
+here A = 0, so we can see what M does:
+```{r}
+sim_dat <- data.frame( M=seq(from=-2,to=2,length.out=30) , A=0 ) 
+s <- sim( m5.3_A , data=sim_dat , vars="D" )
+
+plot( sim_dat$M , colMeans(s) , ylim=c(-2,2) , type="l" , xlab="manipulated M" , ylab="counterfactual D" )
+shade( apply(s,2,PI) , sim_dat$M )
+mtext( "Total counterfactual effect of M on D" )
+```
+above is the only variable simulated D. => we dont simulate A cause M doesn't influence it. 
+
+
+
+
+# MASKED RELATIONSHIP
+This kind of problem tends to arise when there are two predictor variables that are correlated with one another. However, one of these is positively correlated with the outcome and the other is negatively correlated with it.
+```{r}
+library(rethinking) 
+data(milk)
+d <- milk
+str(d)
+```
+The variables well look at:
+*kcal.per.g* : Kilocalories of energy per gram of milk.
+*mass* : Average female body mass, in kilograms.
+*neocortex.perc* : The percent of total brain mass that is neocortex mass.
+
+```{r}
+#standardizing:
+d$K <- scale( d$kcal.per.g ) 
+d$N <- scale( d$neocortex.perc ) 
+d$M <- scale( log(d$mass) )
+```
+
+the model:
+Ki ∼ Normal(μi, σ) *k = kilocalories*
+μi =α+β_N Ni  *N=neocortex percent*
+
+```{r}
+#running w vague prior:
+m5.5_draft <- quap( 
+  alist(
+    K ~ dnorm( mu , sigma ) , 
+    mu <- alpa + bN*N ,
+    alpa ~ dnorm(1, 1) ,
+    bN ~ dnorm(1, 1) , 
+    sigma ~ dexp( 1 )
+) , data=d )
+#this gives a long error, that comes because half og N = NA's
+
+```
+
+```{r}
+#we fix the prob of missing values by:
+ dcc <- d[ complete.cases(d$K,d$N,d$M) , ] #new data frame with somethibg in the rows :)
+
+m5.5_draft <- quap( alist(
+K ~ dnorm( mu , sigma ) , mu <- a + bN*N ,
+a ~ dnorm( 0 , 1 ) ,
+bN ~ dnorm( 0 , 1 ) , sigma ~ dexp( 1 )
+) , data=dcc )
+
+#checking out the priors by inspecting them visually:
+prior <- extract.prior( m5.5_draft )
+xseq <- c(-2,2)
+mu <- link( m5.5_draft , post=prior , data=list(N=xseq) )
+plot( NULL , xlim=xseq , ylim=xseq )
+for ( i in 1:50 ) lines( xseq , mu[i,] , col=col.alpha("black",0.3) )
+```
+*okiiii our priors are crazy - we must tigthen them :)*
+```{r}
+m5.5 <- quap( alist(
+K ~ dnorm( mu , sigma ) , mu <- a + bN*N ,
+a ~ dnorm( 0 , 0.2 ) , bN ~ dnorm( 0 , 0.5 ) , sigma ~ dexp( 1 )
+) , data=dcc )
+
+### plotting after tidying the priors 
+prior <- extract.prior( m5.5 )
+xseq <- c(-2,2)
+mu <- link( m5.5_draft , post=prior , data=list(N=xseq) )
+plot( NULL , xlim=xseq , ylim=xseq )
+for ( i in 1:50 ) lines( xseq , mu[i,] , col=col.alpha("black",0.3) )
+
+### looking at the posterior:
+ precis( m5.5 )
+```
+
+```{r}
+# PLOTTING THE POSTERIOR *MEAN* LINE
+xseq <- seq( from=min(dcc$N)-0.15 , to=max(dcc$N)+0.15 , length.out=30 ) 
+mu <- link( m5.5 , data=list(N=xseq) )
+mu_mean <- apply(mu,2,mean)
+mu_PI <- apply(mu,2,PI)
+plot( K ~ N , data=dcc, xlab = "neocortex percent (std)", ylab="kilocal per g (std)" ) 
+lines( xseq , mu_mean , lwd=2 ) 
+shade( mu_PI , xseq )
+```
+
+
+## USING MASS AS PREDICTOR
+```{r}
+m5.6 <- quap( alist(
+K ~ dnorm( mu , sigma ) , 
+mu <- a + bM*M ,
+a ~ dnorm( 0 , 0.2 ) , 
+bM ~ dnorm( 0 , 0.5 ) , 
+sigma ~ dexp( 1 )
+) , data=dcc ) 
+precis(m5.6)
+```
+*So log-mass is negatively correlated with kilocalories*
+now this plotted:
+```{r}
+xseq <- seq( from=min(dcc$M)-0.15 , to=max(dcc$M)+0.15 , length.out=30 ) 
+mu <- link( m5.6 , data=list(M=xseq) )
+mu_mean <- apply(mu,2,mean)
+mu_PI <- apply(mu,2,PI)
+plot( K ~ N , data=dcc, xlab = "log body mass (std)", ylab="kilocal per g (std)" ) 
+lines( xseq , mu_mean , lwd=2 ) 
+shade( mu_PI , xseq )
+```
+
+
+## ADDING BOTH PREDICTOR VARIABLES 
+```{r}
+m5.7 <- quap( alist(
+K ~ dnorm( mu , sigma ) ,
+mu <- a + bN*N + bM*M , a ~ dnorm( 0 , 0.2 ) , 
+bN ~ dnorm( 0 , 0.5 ) , 
+bM ~ dnorm( 0 , 0.5 ) , 
+sigma ~ dexp( 1 )
+) , data=dcc ) 
+
+precis(m5.7)
+
+````
+
+```{r}
+#COMPARING MODELS
+coeftab_plot( coeftab( m5.5 , m5.6 , m5.7 ) , pars=c("bM","bN") )
+```
+*The posterior mean for the association of neocortex percent has increased fivefold, and its 89% interval is now entirely above zero. The posterior mean for log body mass has increased 2.5 times in magnitude.*
+ => they have moreoverly cancelled out each other = MASKED 
+ 
+ 
+### plotting counterfactuals
+```{r}
+xseq <- seq( from=min(dcc$M)-0.15 , to=max(dcc$M)+0.15 , length.out=30 ) 
+mu <- link( m5.7 , data=data.frame( M=xseq , N=0 ) )
+
+mu_mean <- apply(mu,2,mean)
+mu_PI <- apply(mu,2,PI)
+plot( NULL , xlim=range(dcc$M) , ylim=range(dcc$K), xlab = "Log Body MAss (Std)", ylab = "Kilocal per g (std)", main = "Counterfactual holding N = 0" ) 
+lines( xseq , mu_mean , lwd=2 )
+shade( mu_PI , xseq )
+```
+
+ 
+# Dealing with categorical data => index modelling 
+
+```{r}
+#osomething is going on with the data frames, so i cant do what i want to .... we should however here had made a index variable
+d$sex <- ifelse( d$male==1 , 2 , 1 ) # if male == 1, then put 2 in the sex column, and 1 if not
+str( d$sex ) 
+```
+we have now created an these indexes, such that our model can index for parameter, such that we get a parameter for each unique index (here 1,2)
+
+```{r}
+#approximate the posterior for the above model, the one using an index variable
+m5.8 <- quap( alist(
+height ~ dnorm( mu , sigma ) , 
+mu <- a[sex] ,
+a[sex] ~ dnorm( 178 , 20 ) ,
+sigma ~ dunif( 0 , 50 )
+) , data=d ) 
+
+precis( m5.8 , depth=2 )
+```
+
+from this we can now make the posterior samples and find the *contrast*:
+```{r}
+post <- extract.samples(m5.8) post$diff_fm <- post$a[,1] - post$a[,2] 
+
+precis( post , depth=2 )
+```
+
+ 
+
+## all types of categories:
+```{r}
+data(milk)
+d <- milk 
+unique(d$clade)
+
+##making the index value:
+d$clade_id <- as.integer( d$clade )
+
+
+## making the model:
+d$K <- scale( d$kcal.per.g )
+
+m5.9 <- quap(alist(
+  K ~ dnorm( mu , sigma ),
+  mu <- a[clade_id],
+  a[clade_id] ~ dnorm( 0 , 0.5 ), 
+  sigma ~ dexp( 1 )
+) , data=d )
+
+labels <- paste( "a[" , 1:4 , "]:" , levels(d$clade) , sep="" )
+plot(precis(m5.9 , depth=2 , pars="a" ), labels= labels
+     ) 
+```
+### in a hogwarts case :D
+```{r}
+d$house <- sample( rep(1:4,each=8) , size=nrow(d) )
+
+m5.10 <- quap( alist(
+K ~ dnorm( mu , sigma ),
+mu <- a[clade_id] + h[house], a[clade_id] ~ dnorm( 0 , 0.5 ), h[house] ~ dnorm( 0 , 0.5 ), sigma ~ dexp( 1 )
+) , data=d )
+```
+
+ 
+ 
+ 
+ 
+ 
+
+
+# EXERCISES !!!!!
+5E1. Which of the linear models below are multiple linear regressions?
+(1) μi =α+βxi
+(2) μi = βxxi + βzzi
+(3) μi = α + β(xi − zi) 
+(4) *μi =α+βxxi +βzzi*
+
+
+5E2. Write down a multiple regression to evaluate the claim: Animal diversity is linearly related to latitude (bredegrad), but only after controlling for plant diversity. You just need to write down the model definition.
+
+$$animal_i \sim Normal(\mu, \sigma) \\
+\mu_i = \alpha + \beta_LL_i + \beta_PP_i\\
+\alpha \sim Normal(0,10)\\ 
+\beta_L \sim Normal(0,0.5) \\
+\beta_P \sim Normal(0,0.5)\\
+\sigma \sim Exponential(1) $$
+
+- here is L = latitude and P = plant diversity
+- we are to define our priors, but we have no no no idea about what the priors theoretical argumentation would be ....
+
+```{r}
+### IN R STYLE
+model_animal <- quap(alist(
+  animal ~ dnorm(mu, sigma),
+  mu = a + BL*L + BP*P,
+  a ~ dnorm(0,10),
+  BL ~ dnorm(0,0.5),
+  BP ~ dnorm(0,0.5), 
+  sigma ~ dexp(1)
+), data = we_have_no_data)
+
+#in this hypothetical model we would have had P and L given by the data, whcih we done have
+```
+
+
+5E3. Write down a multiple regression to evaluate the claim: Neither amount of funding nor size of laboratory is by itself a good predictor of time to PhD degree; but together these variables are both positively associated with time to degree. Write down the model definition and indicate which side of zero each slope parameter should be on.
+$$PhD \sim Normal(\mu, \sigma) \\
+\mu_i = \alpha + \beta_FF_i + \beta_LL_i\\
+\alpha \sim Normal(0,10)\\ 
+\beta_F \sim LogNormal(0,0.5) \\
+\beta_L \sim LogNormal(0,0.5)\\
+\sigma \sim Exponential(1) $$
+
+F = funding size 
+L = laboratory size 
+(these are both maked log - to stay positive. The book would probably not have done this, but standardized everything instead.)
+
+5E4. Suppose you have a single categorical predictor with 4 levels (unique values), labeled A, B, C and D. Let Ai be an indicator variable that is 1 where case i is in category A. Also suppose Bi, Ci, and Di for the other categories. Now which of the following linear models are inferentially equivalent ways to include the categorical variable in a regression? Models are inferentially equivalent when it’s possible to compute one posterior distribution from the posterior distribution of another model.
+(1) μi = α+βAAi +βBBi +βDD
+*(2) μi = α+βAAi +βBBi +βCCi  +βDDi0 - according to the book, this one is the wrong one + because this model is not idenfiable*
+(3) μi = α+βBBi +βCCi +βDDi
+(4) μi = αAAi +αBBi +αCCi +αDDi
+(5) μi = αA(1−Bi −Ci −Di)+αBBi +αCCi +αDDi
+*buuuut i dont get this question ....*
+
+
+5M1. Invent your own example of a *spurious correlation*. An outcome variable should be correlated with both predictor variables. But when both predictors are entered in the same model, the correlation between the outcome and one of the predictors should mostly vanish (or at least be greatly reduced).
+
+*our idea is here to use the ice, cancer, sun example - where the ice effect will be reduced greatly, when both ice and sun are predictors.*
+```{r}
+library(rethinking)
+library(dagitty)
+
+dag_ice <- dagitty( "dag {
+Sun -> Cancer 
+Sun -> Ice 
+}")
+
+coordinates(dag_ice) <- list( x=c(Sun=0,Ice=1,Cancer=2) , y=c(Sun=0,Ice=1,Cancer=0) ) 
+drawdag( dag_ice)
+
+# we then test for independencies:
+impliedConditionalIndependencies( dag_ice)
+```
+*oki so this is our spuriours correlation, in here we see some association between ice and cancer - however this vanish when we add sun as above.*
+
+
+5M2. Invent your own example of a *masked relationship*. An outcome variable should be correlated with both predictor variables, but in opposite directions. And the two predictor variables should be correlated with one another.
+
+*this can be understood as if two variables are both predictors for one outcome, but one of them negatively and the other positively. They will often only function as predictors when both are them are used. The mask analogy arises from the fact that one of the variables often mask out the other*
+
+
+
+5M3. It is sometimes observed that the best predictor of fire risk is the presence of firefighters— States and localities with many firefighters also have more fires. Presumably firefighters do not cause fires. Nevertheless, this is not a spurious correlation. Instead fires cause firefighters. 
+
+Consider the same reversal of causal inference in the context of the divorce and marriage data. 
+How might a high divorce rate cause a higher marriage rate?
+*the more divorce the better opportunities for re-marriages*
+
+Can you think of a way to evaluate this relationship, using multiple regression?
+
+$$marriage_rate \sim Normal(\sigma, \mu) \\
+mu_i = alpha + \beta_D D_i + \beta_r R_i \\
+\alpha \sim Normal(1,1) \\
+B_D \sim Normal(1,3) \\
+B_R \sim Normal(1,2) $$
+her er R = remarriage and D = divorce 
+
+
+
+
+5M4. In the divorce data, States with high numbers of Mormons (members of The Church of Jesus Christ of Latter-day Saints, LDS) have much lower divorce rates than the regression models expected. Find a list of LDS population by State and use those numbers as a predictor variable, predicting di- vorce rate using marriage rate, median age at marriage, and percent LDS population (possibly stan- dardized). You may want to consider transformations of the raw percent LDS variable.

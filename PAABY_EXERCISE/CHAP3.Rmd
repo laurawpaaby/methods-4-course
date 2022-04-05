@@ -16,12 +16,13 @@ making the posterior for the globe tossing model (tossing a globe to see if it h
 ```{r}
 p_grid <- seq( from=0 , to=1 , length.out=1000 ) # here you just make a sequence from 0-1 and 1000 of the values, see plot for understanding 
 prob_p <- rep( 1 , 1000 ) # the prior probability - super uniform, just a sequence of 1
-prob_data <- dbinom( 6 , size=9 , prob=p_grid ) #6 water 9 tosses
+prob_data <- dbinom( 6 , size=9 , prob=p_grid ) #6 water 9 tosses, size is effect size 
 posterior <- prob_data * prob_p # this gives the posterior distribution its shape
 posterior <- posterior / sum(posterior) #standardizing => keeps the same shape, cause it does not change the relative values but the area under the curve (standardization)
 
 
 plot(posterior)
+plot(prob_p)
 ```
 
 Now lets draw 10,000 samples from this posterior -> the posterior is a bucket full of parameter values
@@ -78,6 +79,7 @@ likelihood <- dbinom( 3 , size=3 , prob=p_grid )
 posterior <- likelihood * prior
 posterior <- posterior / sum(posterior)
 samples <- sample( p_grid , size=1e4 , replace=TRUE , prob=posterior )
+
 ```
 
 
@@ -101,7 +103,7 @@ HOWEVER:When the posterior is bell shaped, it hardly matters which type of inter
 # PRODUCE POINT ESTIMATES
 there are different kinds and often should you not do it if you dont have any good reason, but here are some to go by:
 
-#### the mamiximum posteriori - the higest posterior probability
+#### the mamiximum posteriori - the highest posterior probability
 ```{r}
 p_grid[which.max(posterior)]S
 

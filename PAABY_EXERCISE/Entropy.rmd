@@ -1,0 +1,214 @@
+---
+title: "Entropy"
+author: "Laura W. Paaby"
+date: "3/21/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+pacman::p_load(tidyverse)
+```
+
+### Information Content
+Shannon information content.
+$$ h(X = x ) = log_2(\frac{1}{P(X = x)}) = -log_2(P(X=x))$$
+```{r}
+Prob <- seq(0,1, by = 0.01)
+
+InformationContent <- -log2(Prob)
+
+plot(Prob, InformationContent, type = "l")
+```
+
+**Rules for measuring information**
+  1) Deterministic outcomes containt no information because you already know the answer. 
+  2) Information content increases with decreasing proabilities (as shown in the above plot)
+  3) Information content is additive for **INDEPENDT** random varibles. (You can add the          information content gained from multiple events)
+  
+  $$P(X = x, Y = y) = P(X = x) \cdot P(Y = y) \Rightarrow h(X=x, Y = y)  = h(X=x) \cdot h(Y= y)$$
+Because the sum of two logs is the same as the log of the product. 
+$$ log_2\frac{1}{P(X = x)} + log_2\frac{1}{P(Y=y)} = log_2\frac{1}{P(X= x) *P(Y= y)} = log_2\frac{1}{P(X=x,Y=y)} $$
+```{r}
+log(2) + log (2) == log(2*2)
+```
+
+## Example:
+Everyone knows the game show deal or no deal, if not try and keep up. The show is essentially about a contestant being presented 24 suit cases and every item has a price in them. One of the suit cases has a staggering price of 1million dollars in it. 
+
+At the start of the show the participant selects a briefcase as his/hers this will be the price in the end of the show if the persons doesn't decide to selll his or hers suitcase prior. Every subsequent round the partcipant has to select a suitcase which will be eliminated and the bank/host will be make an offer for the participants suitcase based on the odds of it being a good suitcase. 
+
+Let's say that we wanted to find out how much information towarads locating the 1 million dollars every time we eliminate a suitcase. The formula for information gain is made exactly for that purpose. 
+
+**Start**
+We start out with 0 bits of information when we start guessing on where the 1 million suitcase is located. 
+
+```{r}
+
+deal_or_no_deal <- function(){
+  n_suitcase <- 24
+  info_list <- c()
+  hit = 0
+  n_round = 0
+  
+  while(hit == 0) {
+    n_round <- n_round + 1
+    hit <- rbinom(1, 1 , prob = 1/n_suitcase) #check to see if we selected the 1mil suitcase
+  
+    if (hit == 1){ 
+      info_gain <- -log2(1/n_suitcase) #If we selected 1 mil suitcase we gain the remaining knowledge required
+    }
+    
+    else{
+      info_gain <- -log2((n_suitcase-1)/n_suitcase)  #Every time we hit we gain some bits of information
+      n_suitcase <- n_suitcase - 1
+    }
+    info_list <- cbind(info_list, info_gain) #Bind the information gain from each round to a list.
+    print(paste("round:", n_round , ", Bits Gained", sum(info_list)))  #Sum up all the bits gained
+    
+  }
+}
+```
+
+```{r}
+deal_or_no_deal()
+```
+If you repeat the function enough times you will see that the number of rounds required to find the 1 million dollar suitcase changes. But everyime we find the suitcase our information gained jumps up to 4.5849... regardless of the round you found it. 
+
+```{r}
+log2(24)
+```
+We can see that the log2(24) is equal to the summation of bits gained when we find the suitcase. This is the total number of bits in the "system". To be sure that we found the suitcase we need 4.58 bits of information.  
+
+Another interesting fact for the keen observer: If you haven't found the suitcase after 12 trials you'll have gained exactly 1 bit of information. It is 1 bit of information because we have now eliminated over half of the possibilities 12/24 = half. You gain 1 additional bit once you have eliminated half of the 12 remaining and so forth.   
+
+
+
+### Average information content
+**Shannon Entropy**
+
+$$ 
+H(X) = \sum_{x\in X} {P(X = x) h(X = x)}    \\
+H(X) = \sum_{x\in X} {P(X = x) log_2 (\frac{1}{p(X=x)})}    \\
+H(X) = -\sum_{x\in X} {P(X = x) log_2(P(X = x))}    \\
+
+$$
+So how does entropy change with different distributions? 
+```{r}
+entropy_func <- function(Prob){
+  entropy <- -1*sum(Prob * log2(Prob))
+  entropy_list <- Prob * -log2(Prob)
+  final_list <- data_frame(Prob,entropy_list, entropy)
+  return(final_list)
+}
+```
+
+
+
+```{r}
+#Discrete count of scenarios
+x_seq <- seq(0,100, by = 1)
+#Probability of different scenarios
+p_binom <- dbinom(x_seq, size = 100, prob = 0.6)
+p_unif <- dunif(x_seq, min = 0, max = 100)
+p_determ <- c(rep(0,100), 1)
+p_norm_sd_5 <- dnorm(x_seq, mean = 40, sd = 5)
+p_norm_sd_30 <- dnorm(x_seq, mean = 40, sd = 30)
+```
+
+
+```{r}
+plot(x_seq, p_binom, type = "l")
+mtext(paste("entropy = ", entropy_func(p_binom)$entropy[1]))
+```
+
+
+```{r}
+plot(x_seq, p_unif, type = "l")
+mtext(paste("entropy = ", entropy_func(p_unif)$entropy[1]))
+```
+
+
+```{r}
+plot(x_seq, p_determ, type = "l")
+mtext(paste("entropy = ", entropy_func(p_determ)$entropy[1]))
+```
+```{r}
+plot(x_seq, p_norm_sd_5, type = "l")
+mtext(paste("entropy = ", entropy_func(p_norm_sd_5)$entropy[1]))
+```
+
+```{r}
+plot(x_seq, p_norm_sd_30, type = "l")
+mtext(paste("entropy = ", entropy_func(p_norm_sd_30)$entropy[1]))
+```
+The above probability density distributions shows how different PDF effects entropy. 
+
+ 1) The uniform distribution where every outcome is equally likely has an entropy of 6.7. 
+ 2) The reason that the uniform distribution is the maximum entropy distribution is becuase     we are on a bounded interval. Un-bounded intervals will result in the maximum entropy       distribution being gaussian. When entropy is a measure of suprise or information in a       system this is not intutive at first. However, adding any distribtutions together,          aslong as you add enough distribution, will always result in a gaussian distribution.       We've seen it in terms of the central limit theroem. So having an unbounded gaussian        means that we're not certain about which underlying distribtuins are part of                distribution and therefore we're not that certain and have a lot of entropy/suprise.
+ 3) If all our probability mass is centered on 1 discerte outcome we will have no entropy.    This makes sense since we're multiplying h(x) by P(X=x) to get H(X) and we know that h(x)   = 0 if we're already sure about the outcome. In other words there is no information to be     gained when already knowing the outcome, and therefore we cannot be suprised(entropy).  
+
+### Entropy in practise
+Why is entropy usefull? 
+The best way to explain this is by playing a little game. 
+
+The following video explains it nice if you fast forward to minute 8.
+[https://www.youtube.com/watch?v=bkLHszLlH34&ab_channel=IntelligentSystemsLab]
+
+
+#### The game
+Say we have 12 marbles and they are all of equal weight excpet for one. We got a weight where we can place the same number of marbles on each side to see if one side is heavier than the others. 
+
+How would you find the marble of different weight using fewest numbers weightings as possible? 
+
+**Options**
+We can weight number of marbles agaist each other. 
+1:1 / 2:2  / 3:3 
+4:4 / 5:5 / 6:6
+
+**Solution 1**
+We could compare 1 marble at a time. 
+
+We have 1/12 chance that the left side is heavier than the right side.
+We have 1/12 that the right side is heavier than the left side. 
+And 10/12 chance that the marble with an odd weight is still on the table and the weight is even. 
+
+We use our expected information gain/entropy formula. 
+```{r}
+-(log2(1/12)*1/12 + log2(1/12)*1/12 + log2(10/12)*10/12)
+```
+So doing a 1:1 weighing of our marbles is expected to produce 0.8166 bits of information. 
+
+**Solution 2 **
+6:6 comparisson. 
+
+6/12 chance left side is heavier.
+6/12 chance right side is heavier. 
+No marbles left on the table so 0/12 chance. 
+```{r}
+-(log2(6/12)*6/12 + log2(6/12)*6/12)
+```
+Doing a 6:6 comparrison results in an expected information of 1 bit. If renember 1 bit of information was equal to having removed half of the options. It is exactly the same situation in this case. No matter which side is heavier we know that the odd marble is on either side. But we don't know which one and we don't know if it is heavier or lighter.  
+
+**Soluton 3**
+Let's try and loop through all possibilities and see which one yields the most expected information. 
+
+```{r}
+for (i in 1:6){
+  print(-(log2(i/12)* i /12 + log2(i/12)* i/12 +  log2((12-i*2) /12) * (12-i*2)/12))
+}
+```
+It wont let us calcualte 6:6 because 12-6*i = 0. But we know it is 1 bit. 
+We now see that the optimal comparrison is 4:4 with an expected information gain of 1.5849
+
+This is where it gets a little bit more tricky. In order to find the optimal 2. round of weighting we should use the previous information gained. For a full explanation I suggest that you watch the video step by step, pause and try and reason about the steps. 
+
+[https://www.youtube.com/watch?v=bkLHszLlH34&ab_channel=IntelligentSystemsLab]
+
+**Take home: **
+The idea is taht if you use entropy/expected information gain you can solve this problem everyime in 3 weighings no matter what. This would be very hard by just following logic. But using entropy we can maximize our decisions. 
+
+

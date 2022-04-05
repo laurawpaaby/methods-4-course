@@ -441,6 +441,251 @@ shade( mu.PI , weight.seq )
 
 
 
+### Problems from Chapter 4 of *Statistical Rethinking*.
+
+#### Problem 4E1
+
+4E1: In the model definition below, which line is the likelihood? 
+*yi ∼ Normal(μ, σ) (this is the likelihood)*
+μ ∼ Normal(0, 10) (μ prior)
+σ ∼ Exponential(1) (σ prior)
+
+
+#### Problem 4E2
+combination of posterior and likelihood gives our posterior distribution
+
+4E2. In the model definition just above, how many parameters are in the posterior distribution?
+*Two parameters μ(my) and σ(sigma)*
+
+#### Problem 4E3
+
+4E3. Using the model definition above, write down the appropriate form of Bayes’ theorem that includes the proper likelihood and priors.
+
+Note for myself: 
+µ is the mean of the population
+σ is the standard deviation 
+
+$$Pr(\sigma, \mu|y) = \frac{\Pi_i Normal(y_i|\mu \sigma) Normal(\mu|0,10) Uniform(\sigma|1,10)}  {\int \int \Pi_i Normal(y_i|\mu \sigma) Normal(\mu|0,10) Uniform(\sigma|1,10)}$$
+side 87 kan man finde formlen der viser det.
+
+
+#### Problem 4E4
+
+4E4. In the model definition below, which line is the linear model? 
+$$y_i ~ normal(\mu, \sigma)$$ 
+$$\mu_i = \alpha + \beta x_i$$
+this one ^^^^ is the linear 
+$$\alpha ~ \sim Normal(0,10)$$
+
+yi ∼ Normal(μ, σ)
+*μi =α+βxi*
+α ∼ Normal(0, 10) 
+β ∼ Normal(0, 1) 
+σ ∼ Exponential(2)
+
+The linear model is the μi =α+βxi
+
+#### Problem 4E5
+
+4E5. In the model definition just above, how many parameters are in the posterior distribution?
+The model has 3 parameters: 
+α, β and σ
+
+#### Problem 4M1
+
+4M1. For the model definition below, simulate observed y values from the prior (not the posterior). 
+yi ∼ Normal(μ, σ)
+μ ∼ Normal(0, 10) 
+σ ∼ Exponential(1)
+
+```{r}
+N <- 10000 # numbers of observation
+mu <- rnorm(N,0,10) # normalized 0,10 as stated in the model 
+sigma <- rexp(N,1) #exponential
+
+y <- rnorm(N, mu, sigma) #simulating y values
+dens(y) #plotting it
+```
+
+#### Problem 4M2
+
+4M2. Translate the model just above into a quap formula.
+yi ∼ Normal(μ, σ)
+μ ∼ Normal(0, 10) 
+σ ∼ Exponential(1)
+
+```{r}
+list_qua <- alist(
+    y ~ dnorm(mu, sigma) , 
+    mu ~ dnorm(0,10) , 
+    sigma ~ dexp(1) 
+)
+
+#so the difference here is that we use dnorm and dunif instead of rnorm and runif
+#rnorm - return randoms numbers following a normal distribution
+#dnorm - follows the probability density function - therefore we use it when transferring into a quap formula 
+
+```
+
+#### Problem 4M3
+
+Translate the quap model formula below into a mathematical model definition.
+
+```{r}
+#this is the model which we want to make a mathematical model definition 
+flist <- alist(
+    y ~ dnorm( mu , sigma ),
+    mu <- a + b*x,
+    a ~ dnorm( 0 , 10 ),
+    b ~ dunif( 0 , 1 ),
+    sigma ~ dexp( 1 )
+)
+
+
+#Mathematical model 
+#(not r )
+y ~ Normal(mu, sigma)
+mu = Normal(a+Bxi)
+a ~ Normal(0,10)
+b ~ Uniform(0,1) 
+sigma ~ Exponential(1) 
+
+```
+
+$$y \sim Normal(\mu, \sigma)$$
+$$\mu = Normal(\alpha + \beta x_i)$$
+$$\alpha \sim Normal(0,10)$$
+$$\beta \sim Uniform(0,1)$$ 
+$$\sigma \sim Exponential(1)$$
+
+
+#### Problem 4M4
+
+A sample of students is measured for height each year for 3 years. After the third year, you want to fit a linear regression predicting height using year as a predictor. Write down the mathematical model definition for this regression, using any variable names and priors you choose. Be prepared to defend your choice of priors.
+
+µ is the mean of the population
+σ is the standard deviation 
+
+x ~ year 
+h ~ height
+height ~ year
+
+$$h_i \sim Normal(\mu, \sigma) $$
+hi ~ Normal(mu, sigma)
+$$\mu \sim \alpha + \beta x_i$$
+mu ~ a + bxi
+
+$$\alpha \sim Normal(150, 10)$$ 
+
+150 cm is the normal distribution with a sd of 10 cm. - so children are in the range of 130 and 170 
+
+Our beta is 5 cm with a sd of 1 - we expect children to grow alot 
+$$\beta \sim Normal(5,1)$$
+$$\sigma \sim Exponential(1)$$
+
+
+```{r}
+#showing
+hist(rexp(1000, 1))
+```
+
+#### Problem 4M5
+
+Now suppose I remind you that every student got taller each year. Does this information lead you to change your choice of priors? How?
+
+When I know that the students get taller every year - it much mean that they are children still growing alot. We did take this into account in our model. 
+
+#### Problem 4M6
+Now suppose I tell you that the variance among heights for students of the same age is never more than 64cm. How does this lead you to revise your priors?
+
+Hm i then would change my a 
+a ~ Normal(135, 32) given a range of 64 cm variance okay this was my first thought 
+online they say that its sigma we will change when knowing the overall variance we can take the square root of it
+```{r}
+sqrt(64)
+```
+$$\alpha \sim Normal(150, 8)$$ 
+This is 8, thereby we change our sd in the alpha to from 10 to 8. 
+
+### Bonus! 😃
+
+#### Problem 4H1
+The weights listed below were recorded in the !Kung census, but heights were not recorded for these individuals. Provide predicted heights and 89% intervals for each of these individuals. That is, fill in the table below, using model-based predictions.
+  Individual | expected height | 89% interval weight
+1 46.95      | 
+2 43.72
+3 64.78
+4 32.59
+5 54.63
+
+
+
+
+
+```{r}
+# first reloading the data:
+library(rethinking, tidyverse)
+data(Howell1)
+d<- Howell1
+
+#now we need to filter out people under 18
+d <- d %>% 
+    filter(age>=18)
+
+#first make an average weight to standardize
+xbar <- mean(d$weight)
+
+#make a model that can predict each height for each weights given the data:
+model <- quap(alist(#we are now making a list of priors
+    height ~ dnorm(mu, sigma), 
+    y <- a + b*(weight-xbar), #xbar is the average weight 
+    a ~ dnorm(173.5, 18), #defining the alpha prior for the height - the mean is assumed to be 173.5 (Sara's and I's average height), and 18 is the standard deviation (this means that 173.5 (+-18) covers 65% (2 std.) of all observations) 
+    #intercept
+    b ~ dlnorm(2,2), #slope -> so how much do we go up in cm for each kg of weight
+    sigma ~ dexp(1)
+), data = d)
+
+
+#now we need to get values our of it - here we use link:
+# link samples from the posterior distribution for each case in the data 
+#the weights will use for data:
+weight <- c(46.95, 43.72, 64.78, 32.59, 54.63)
+weight_data <- data.frame(weight)
+
+y <- link(model, data=weight_data, n = 1000)
+y <- data.frame(y)#this now gives us a 1000 (default) samples for each weight. 
+
+
+# finding the average heights for all of the posterior samples;
+y1 <- mean(y$X1)
+y2 <- mean(y$X2)
+y3 <- mean(y$X3)
+y4 <- mean(y$X4)
+y5 <- mean(y$X5)
+
+ys <- c(y1, y2, y3, y4, y5) #mean height - mu heights 
+
+height_weight_data <- data.frame(ys, weight)
+height_weight_data 
+
+```
+
+```{r}
+#the same could have been achieved by:
+mu_height <- apply(y,2,mean)
+mu_height
+```
+
+
+```{r}
+#this is now the 
+mu.PI <- apply( y , 2 , PI , prob=0.89)
+mu.PI 
+```
+
+*THIS IS NOW THE PROBABILITY INTERVAL :D* 
+
+
 
 
 

@@ -1,0 +1,727 @@
+---
+title: "chap 7"
+author: "Laura W. Paaby"
+date: "3/3/2022"
+output: html_document
+---
+
+```{r}
+#DATA are average brain volumes and body masses for seven hominin species
+sppnames <- c( "afarensis","africanus","habilis","boisei", 
+"rudolfensis","ergaster","sapiens")
+brainvolcc <- c( 438 , 452 , 612, 521, 752, 871, 1350 )
+masskg <- c( 37.0 , 35.5 , 34.5 , 41.5 , 55.5 , 61.0 , 53.5 )
+
+d <- data.frame( species=sppnames , brain=brainvolcc , mass=masskg )
+```
+
+```{r}
+# RESCALING VARIABLES
+d$mass_std <- (d$mass - mean(d$mass))/sd(d$mass) 
+d$brain_std <- d$brain / max(d$brain)
+
+## MAKING THE MODEL
+m7.1 <- quap(
+alist(
+brain_std ~ dnorm( mu , exp(log_sigma) ),
+mu <- a + b*mass_std,
+a ~ dnorm( 0.5 , 1 ),
+b ~ dnorm( 0 , 10 ),
+log_sigma ~ dnorm( 0 , 1 )
+), data=d )
+```
+
+NOW we would usually have plottet the posterior distribution, but instead well start looking the R^2 - with the aim to burry R^2 forever ...
+
+```{r}
+# rsquared:
+set.seed(12) 
+
+s <- sim( m7.1 )
+r <- apply(s,2,mean) - d$brain_std
+resid_var <- var2(r)
+outcome_var <- var2( d$brain_std )
+1 - resid_var/outcome_var
+
+
+#this can be saved in a function instead:
+R2_is_bad <- function( quap_fit ) {
+s <- sim( quap_fit , refresh=0 )
+r <- apply(s,2,mean) - d$brain_std
+1 - var2(r)/var2(d$brain_std)
+}
+```
+^this means that 47% of the variance is explained by our first model. 
+well now make another model to try it again - the models will increase in complexity, which will be refleted (hopefully in R2):
+
+```{r}
+#making a bunch of complex models:
+m7.2 <- quap(alist(
+  brain_std ~ dnorm(mu, exp(log_sigma)),
+  mu <- a + b[1]*mass_std + b[2]*mass_std^2,
+  a ~ dnorm( 0.5 , 1 ),
+  b ~ dnorm( 0 , 10 ),
+  log_sigma ~ dnorm( 0 , 1 )
+), data=d , start=list(b=rep(0,2)) )
+
+
+m7.3 <- quap(
+alist(
+brain_std ~ dnorm( mu , exp(log_sigma) ),
+mu <- a + b[1]*mass_std + b[2]*mass_std^2 +b[3]*mass_std^3,
+a ~ dnorm( 0.5 , 1 ),
+b ~ dnorm( 0 , 10 ),
+log_sigma ~ dnorm( 0 , 1 )
+), data=d , start=list(b=rep(0,3)) )
+
+
+m7.4 <- quap(
+alist(
+brain_std ~ dnorm( mu , exp(log_sigma) ),
+mu <- a + b[1]*mass_std + b[2]*mass_std^2 +b[3]*mass_std^3 + b[4]*mass_std^4,
+a ~ dnorm( 0.5 , 1 ),
+b ~ dnorm( 0 , 10 ),
+log_sigma ~ dnorm( 0 , 1 )
+), data=d , start=list(b=rep(0,4)) )
+
+
+
+m7.5 <- quap(
+alist(
+brain_std ~ dnorm( mu , exp(log_sigma) ),
+mu <- a + b[1]*mass_std + b[2]*mass_std^2 +
+b[3]*mass_std^3 + b[4]*mass_std^4 +
+b[5]*mass_std^5,
+a ~ dnorm( 0.5 , 1 ),
+b ~ dnorm( 0 , 10 ),
+log_sigma ~ dnorm( 0 , 1 )
+), data=d , start=list(b=rep(0,5)) )
+
+
+### the last model that has no sd but a constant of 0.001:
+m7.6 <- quap(
+  alist(
+    brain_std ~ dnorm( mu , 0.001 ),
+    mu <- a + b[1]*mass_std + b[2]*mass_std^2 +
+          b[3]*mass_std^3 + b[4]*mass_std^4 +
+          b[5]*mass_std^5 + b[6]*mass_std^6,
+  a ~ dnorm( 0.5 , 1 ),
+  b ~ dnorm( 0 , 10 )
+), data=d , start=list(b=rep(0,6)) )
+```
+
+
+this we want to plot:
+```{r}
+#now ill make a function that can plot this:
+plot_model <- function( model, data ) { 
+  post <- extract.samples(model) 
+  mass_seq <- seq( from=min(d$mass_std) , to=max(d$mass_std) , length.out=100 )
+  l <- link( model , data=list( mass_std=mass_seq ) )
+  mu <- apply( l , 2 , mean )
+  ci <- apply( l , 2 , PI )
+  plot( brain_std ~ mass_std , data=data )
+  lines( mass_seq , mu )
+  shade( ci , mass_seq )
+}
+
+library(tidyverse, ggpubr)
+
+plot_model(m7.1, d)
+plot_model(m7.2, d)
+plot_model(m7.3, d)
+plot_model(m7.4, d)
+plot_model(m7.5, d)
+plot_model(m7.6, d)
+
+
+```
+
+
+### INFORMATION ENTROPY
+We here have the true probabilities for rain (p1=0.3) and sunshine (p2=0.7) in denmark 
+=> here we are actually using the formula written super mathy in the book
+```{r}
+# in denmark 
+p <- c( 0.3 , 0.7 ) 
+-sum( p*log(p) )
+
+# in abu dabi
+p <- c( 0.01 , 0.99 ) 
+-sum( p*log(p) )
+```
+we see here how the uncertainty decreases from denmark (where it often rains) to abu dabi (where it never rains) => *in this way that information entropy measures the uncertainty inherent in a distribution of events.*
+
+in them self they have no values - but used to build a measure of accuracy, they come in handy !!!
+
+
+### measuring divergence
+this is a way to get the accuracy of the model - it will give the log-probability score for a specific observation (there are only 7 observations in our data atm) 
+
+```{r}
+rethinking::lppd(m7.1, n=1000) 
+# lppd = log-pointwise- predictive-density
+```
+if we sum these values you’ll have the total log-probability score for the model and data. => thus the larger numbers the better
+
+```{r}
+#using it on the models
+set.seed(1)
+sapply( list(m7.1,m7.2,m7.3,m7.4,m7.5,m7.6) , function(m) sum(lppd(m)) )
+```
+we here see: the more complex the model the better - like R^2 even though thats not always the case.
+this can be met by splitting up data in training and test, as done on page 217
+
+
+### simulating training and testing:
+Here using the sim_train_test code 
+```{r}
+N <- 20
+kseq <- 1:5
+dev <- sapply( kseq , function(k) { #dev will end up being a matrix that can be plotted
+  print(k);
+  r <- replicate( 1e4 , sim_train_test( N=N, k=k ) ); c( mean(r[1,]) , mean(r[2,]) , sd(r[1,]) , sd(r[2,]) )
+})
+
+r <- mcreplicate( 1e4 , sim_train_test( N=N, k=k ) , mc.cores=1 ) #mc = number of processor cores you wanna use for the sim
+
+### PLOT TIME
+plot( 1:5 , dev[1,] , ylim=c( min(dev[1:2,])-5 , max(dev[1:2,])+10 ) , xlim=c(1,5.1) , xlab="number of parameters" , ylab="deviance" , pch=16 , col=rangi2 )
+  mtext( concat( "N = ",N ) ) 
+  points( (1:5)+0.1 , dev[2,] )
+
+for ( i in kseq ) {
+pts_in <- dev[1,i] + c(-1,+1)*dev[3,i] pts_out <- dev[2,i] + c(-1,+1)*dev[4,i] lines( c(i,i) , pts_in , col=rangi2 ) lines( c(i,i)+0.1 , pts_out )
+}
+```
+
+
+
+##### cross validation AND INFORMATION CRITERION WAIC
+```{r}
+# CROSS VALIDATION
+#rethinking::cv_quap() <- 
+```
+
+Making a simple regression to check WAIC out;
+```{r}
+data(cars) 
+m <- quap( alist(
+  dist ~ dnorm(mu,sigma), mu <- a + b*speed,
+  a ~ dnorm(0,100),
+  b ~ dnorm(0,10),
+  sigma ~ dexp(1) ) , data=cars )
+
+set.seed(94)
+post <- extract.samples(m,n=1000)
+
+#### taking the log likelihood ofeach observation i at each sample s from the posterior:
+n_samples <- 1000
+
+logprob <- sapply( 1:n_samples ,
+  function(s) {
+  mu <- post$a[s] + post$b[s]*cars$speed
+  dnorm( cars$dist , mu , post$sigma[s] , log=TRUE )
+})
+
+# this gives a 50-1000 matrix of log like - with observations in rows and samples in columns
+
+precis(logprob)
+```
+
+Now to compute lppd, the Bayesian deviance, we average the samples in each row, take the log, and add all of the logs together.
+(THIS IS ALL DONE ON THE LOG SCALE w log_sum_exp)
+*Oki so this is all a flex on how to do it manually, you can just use WAIC(model) from rethinking*
+```{r}
+n_cases <- nrow(cars)
+lppd <- sapply( 1:n_cases , function(i) log_sum_exp(logprob[i,]) - log(n_samples) )
+
+### now using the pWAIC penalty - this is literally just variance across samples for each observation then added together:
+pWAIC <- sapply( 1:n_cases , function(i) var(logprob[i,]) )
+
+## now making the actual WAIC:
+-2*(sum(lppd)-sum(pWAIC))
+
+## making the Standard error 
+waic_vec <- -2*( lppd - pWAIC )  
+sqrt( n_cases*var(waic_vec) ) # SE
+
+#and now from rethinking:
+WAIC(m)
+```
+ as u see these numbers are just about the same !!!! 
+
+
+
+### EXAMPLE 1 - MODEL COMPARISON
+*THIS ONE emphasizes the distinction between comparing models for predictive performance versus comparing them in order to infer causation*
+
+using model m6.6, m6.7 and m6.8 => being all about fungus and poison in the garden:
+```{r}
+### THE DATA:
+set.seed(71)
+N <- 100# number of plants 
+h0 <- rnorm(N,10,2)# simulate initial heights 
+treatment <- rep( 0:1 , each=N/2 ) # assign treatments and simulate fungus and growth
+fungus <- rbinom( N , size=1 , prob=0.5 - treatment*0.4 ) 
+h1 <- h0 + rnorm(N, 5 - 3*fungus)
+# compose a clean data frame
+d <- data.frame( h0=h0 , h1=h1 , treatment=treatment , fungus=fungus ) 
+precis(d)
+```
+
+
+```{r}
+# model 6.6
+m6.6 <- quap( alist(
+h1 ~ dnorm( mu , sigma ), mu <- h0*p,
+p ~ dlnorm( 0 , 0.25 ), sigma ~ dexp( 1 )
+), data=d ) 
+
+precis(m6.6)
+
+# MODEL 6.7
+m6.7 <- quap( alist(
+h1 ~ dnorm( mu , sigma ),
+mu <- h0 * p,
+p <- a + bt*treatment + bf*fungus, a ~ dlnorm( 0 , 0.2 ) ,
+bt ~ dnorm( 0 , 0.5 ),
+bf ~ dnorm( 0 , 0.5 ),
+sigma ~ dexp( 1 )
+), data=d ) 
+
+precis(m6.7)
+
+
+# MODEL 6.8 - THE POST TREATMENT MODEL
+m6.8 <- quap( alist(
+h1 ~ dnorm( mu , sigma ), mu <- h0 * p,
+p <- a + bt*treatment,
+a ~ dlnorm( 0 , 0.2 ), 
+bt ~ dnorm( 0 , 0.5 ), 
+sigma ~ dexp( 1 )
+), data=d )
+
+precis(m6.8)
+```
+
+
+NOW LOOKING AT WAIC'S:
+```{r}
+set.seed(11)
+compare(m6.6, m6.7, m6.8)
+```
+the out of sample deviance is here = WAIC
+dWAIC = the differences in the models WAIC
+
+BUT WHICH IS THE BETTER ONE????
+we don’t use the standard errors of the models, but rather the standard error of their difference when comparing them
+```{r}
+set.seed(91)
+waic_m6.7 <- WAIC( m6.7 , pointwise=TRUE )$WAIC 
+waic_m6.8 <- WAIC( m6.8 , pointwise=TRUE )$WAIC 
+
+n <- length(waic_m6.7)
+diff_m6.7_m6.8 <- waic_m6.7 - waic_m6.8
+
+sqrt( n*var( diff_m6.7_m6.8 ) )
+```
+THIS IS THE DIFFERENCE 
+
+If we imagine the 99% (corresponding to a z-score of about 2.6) interval of the difference, it’ll be about:
+```{r}
+ 40.0 + c(-1,1)*10.4*2.6 
+```
+
+
+
+```{r}
+plot(compare( m6.6 , m6.7 , m6.8 ) )
+```
+
+
+we can ask about the difference between models m6.8, the model with treatment only, and model m6.6, the inercept model. Model m6.8 provides pretty good evidence that the treatment works, we found in CHAP6 - however here the WAIC thinks the two models are quite similar???
+
+
+now calculating the standard error to highlight the issue:
+```{r}
+set.seed(92)
+waic_m6.6 <- WAIC( m6.6 , pointwise=TRUE )$WAIC 
+
+diff_m6.6_m6.8 <- waic_m6.6 - waic_m6.8
+sqrt( n*var( diff_m6.6_m6.8 ) )
+```
+
+```{r}
+#this could also have been done by using compare - just adding dSE
+set.seed(93)
+compare( m6.6 , m6.7 , m6.8 )@dSE
+```
+=> this is a matrix of the different standard errors 
+
+
+### EXAMPLE 2 - MODEL COMPARISON
+*This one emphasizes the pointwise nature of model comparison and what inspecting individual points can reveal about model performance and mis-specification. This second example also introduces a more robust alternative to Gaussian regression.*
+
+now we are dealing with outliers and other illusions 
+(remember how some states in the divorce data was far out, which tends to influence/pull models a lot !! and not always in a good sense)
+
+lets see how WAIC and PSIS deals with this:
+```{r}
+library(rethinking) 
+data(WaffleDivorce) 
+d <- WaffleDivorce 
+d$A <- standardize(d$MedianAgeMarriage) 
+d$D <- standardize(d$Divorce) 
+d$M <- standardize(d$Marriage)
+
+# model 1: slope for age 
+m5.1 <- quap( alist(
+  D ~ dnorm( mu , sigma ) , 
+  mu <- a + bA * A ,
+  a ~ dnorm( 0 , 0.2 ) , 
+  bA ~ dnorm( 0 , 0.5 ) , 
+  sigma ~ dexp( 1 )
+) , data = d )
+
+
+# model 2: slope for marriage
+m5.2 <- quap( alist(
+  D ~ dnorm( mu , sigma ) , 
+  mu <- a + bM * M ,
+  a ~ dnorm( 0 , 0.2 ) , 
+  bM ~ dnorm( 0 , 0.5 ) , 
+  sigma ~ dexp( 1 )
+) , data = d )
+
+
+# model 3: mixed effect model
+m5.3 <- quap( alist(
+  D ~ dnorm( mu , sigma ) , 
+  mu <- a + bA*A + bM*M ,
+  a ~ dnorm( 0 , 0.2 ) , 
+  bA ~ dnorm( 0 , 0.5 ) ,
+  bM ~ dnorm(0, 0.5),
+  sigma ~ dexp( 1 )
+) , data = d )
+
+
+```
+
+
+now comparing the model using PSIS - measuring the out of sample performance:
+```{r}
+set.seed(24071847)
+compare( m5.1 , m5.2 , m5.3 , func=PSIS )
+```
+=> the one that omits (leaves out) marriage rate completely is completely left out here (cause marriage rate has very little association with the outcome)
+      thus the model that omits it has a slightly better expected out-of-sample performance, even though it fits worse than 5.3.
+
+the other text is because there is outliers that makes it hard for the PSIS to smooth over the datapoints, this can be met like this:
+```{r}
+# pointwise = TRUE ;D
+set.seed(24071847)
+PSIS_m5.3 <- PSIS(m5.3,pointwise=TRUE)
+
+set.seed(24071847)
+WAIC_m5.3 <- WAIC(m5.3,pointwise=TRUE)
+plot( PSIS_m5.3$k , WAIC_m5.3$penalty , xlab="PSIS Pareto k" ,
+    ylab="WAIC penalty" , col=rangi2 , lwd=2 )
+```
+each point is here a state 
+
+
+## STUDENT T DISTRIBUTION 
+we are not making a dstudent distribution, since it is more robust for outliers;
+```{r}
+m5.3t <- quap( alist(
+D ~ dstudent( 2 , mu , sigma ) , 
+mu <- a + bM*M + bA*A ,
+a ~ dnorm( 0 , 0.2 ) ,
+bM ~ dnorm( 0 , 0.5 ) ,
+bA ~ dnorm( 0 , 0.5 ) ,
+sigma ~ dexp( 1 ) ) , 
+data = d )
+
+PSIS(m5.3t)
+```
+
+
+
+
+# EXERCISE TASK 
+*Easy.*
+*7E1. State the three motivating criteria that define information entropy. Try to express each in your own words.*
+  1.  The measure of uncertainty should be **continuous**.
+  2.  The measure of uncertainty should **increase** as the number of **possible events increases**. 
+  3.  The measure of uncertainty should be **additive**.
+    => this is all taken into account when we calculate the information entropy, which is used to find the uncertainty in decisions or when comparing models - how much uncertainty do they account for (as example)
+    
+$$
+H(p) = -E \log(p_i) = - \sum_{i=1} ^{n} {p_i\log(p_i)}
+$$
+  
+
+7E2. Suppose a coin is weighted such that, when it is tossed and lands on a table, it comes up heads 70% of the time. What is the entropy of this coin?
+```{r}
+p <- 0.70
+-sum(p*log(p))
+```
+^^^the entropy is thus 0.25
+
+7E3. Suppose a four-sided die is loaded such that, when tossed onto a table, it shows “1” 20%, “2” 25%, ”3” 25%, and ”4” 30% of the time. What is the entropy of this die?
+```{r}
+p <- c( 0.20 , 0.25, 0.25, 0.30 ) 
+-sum( p*log(p) )
+```
+
+7E4. Suppose another four-sided die is loaded such that it never shows “4”. The other three sides show equally often. What is the entropy of this die? 
+```{r}
+p <- c( 1/3 , 1/3, 1/3) 
+-sum( p*log(p) )
+```
+
+
+*Medium.*
+7M1. Write down and compare the definitions of AIC and WAIC.
+- Which of these criteria is most general? 
+  *in terms of being the most spread and used, we would say the AIC. However the AIC makes several assumptions, that makes it less applicable when in Bayesian statistics.            (such as flat priors and multivariate gaussian distribution of the posteriors predictive distribution). These assumptions does the WAIC not make, making it more usable and thus general both in standard and bayesian statistics.*
+  
+- Which assumptions are required to transform the more general criterion into a less general one?
+*so how to go from the WAIC to the AIC?? ..... dunno *
+
+7M2. Explain the difference between model selection and model comparison. What information is lost under model selection?
+*In terms of over- and underfitting one must compare several models, to find the one that fits the data the best, while being great at making predictions and thus generalizable. Based on the comparison (could be AIC, WAIC, R^2, ANOVA) one must then choose the best model - while keeping the RQ in mind. However, this sometimes means kill your darlings in the selection phase, where some parameters (and thus information) can be left behind, in order to choose the better model.*
+
+7M3. When comparing models with an information criterion, why must all models be fit to exactly the same observations?
+*because based on these observations the out of sample deviance (deviance of the posterior) varies, which is the deviance we are interested in, when comparing model performance by information criteria such as WAIC. So the foundation on which we compare the models would change, if they were not given the same observations.*
+- What would happen to the information criterion values, if the models were fit to different numbers of observations? Perform some experiments, if you are not sure.
+
+```{r}
+# make data
+names <- rep(1:900)
+height <- rnorm(900, mean = 175, sd = 8)
+kg <- rnorm(900, mean = 70, sd = 8)
+
+data <- data.frame( person=names , height=height , weight=kg )
+
+plot(data$weight ~ data$height)
+```
+
+
+```{r}
+# splitting the data in three:
+library(tidyverse)
+
+data1 <- data %>% 
+  filter(names == 1:25)
+
+data2 <- data %>% 
+  filter(names == 1:200)
+
+data3 <- data %>% 
+  filter(names == 1:900)
+
+```
+
+
+```{r}
+library(rethinking)
+# make 3 models => these are all fitted to a subset of the data 
+model1 <- quap(alist(
+  weight ~ dnorm( mu , sigma),
+  mu <- a + b*height,
+  a ~ dnorm( 0.5 , 1 ),
+  b ~ dnorm( 0 , 10 ),
+  sigma ~ dexp(1)
+), data=data1 )
+
+
+model2 <- quap(alist(
+  weight ~ dnorm(mu, sigma),
+  mu <- a + b[1]*height + b[2]*height^2,
+  a ~ dnorm( 0.5 , 1 ),
+  b ~ dnorm( 0 , 10 ),
+  sigma ~ dexp(1)
+), data=data2 , start=list(b=rep(0,2)) )
+
+
+model3 <- quap(alist(
+  weight ~ dnorm( mu , sigma),
+  mu <- a + b[1]*height + b[2]*height^2 + b[3]*height^3,
+  a ~ dnorm( 0.5 , 1 ),
+  b ~ dnorm( 0 , 10 ),
+  sigma ~ dexp(1)
+), data=data3 , start=list(b=rep(0,3)) )
+
+```
+
+```{r}
+# compare them WAIC
+rethinking::compare(model1, model2, model3)
+
+```
+*=> the smaller the observation set the smaller the WAIC !!!!!! problematic, thus the size of the observations (and the observations) must be the same at all times, to minimizes the deviance.*
+
+```{r}
+# make 3 models => NOW THIS IS FITTED ON ALL THE DATA
+model1_d <- quap(alist(
+  weight ~ dnorm( mu , sigma),
+  mu <- a + b*height,
+  a ~ dnorm( 0.5 , 1 ),
+  b ~ dnorm( 0 , 10 ),
+  sigma ~ dexp(1)
+), data=data )
+
+
+model2_d <- quap(alist(
+  weight ~ dnorm(mu, sigma),
+  mu <- a + b[1]*height + b[2]*height^2,
+  a ~ dnorm( 0.5 , 1 ),
+  b ~ dnorm( 0 , 10 ),
+  sigma ~ dexp(1)
+), data=data , start=list(b=rep(0,2)) )
+
+
+model3_d <- quap(alist(
+  weight ~ dnorm( mu , sigma),
+  mu <- a + b[1]*height + b[2]*height^2 + b[3]*height^3,
+  a ~ dnorm( 0.5 , 1 ),
+  b ~ dnorm( 0 , 10 ),
+  sigma ~ dexp(1)
+), data=data , start=list(b=rep(0,3)) )
+
+rethinking::compare(model1_d , model2_d , model3_d)
+```
+*oki WAIC is huge - but close to the one of the other models.*
+
+
+7M4. What happens to the effective number of parameters, as measured by PSIS or WAIC, as a prior becomes more concentrated? Why? Perform some experiments, if you are not sure.
+*pWAIC is what tells us the effect of the parameters:*
+```{r}
+model_wide <- quap(alist(
+  weight ~ dnorm( mu , sigma),
+  mu <- a + b*height,
+  a ~ dnorm( 100 , 100 ),
+  b ~ dnorm( 100 , 100 ),
+  sigma ~ dexp(1)
+), data=data1 )
+
+model_tight <- quap(alist(
+  weight ~ dnorm( mu , sigma),
+  mu <- a + b*height,
+  a ~ dnorm( 0.1 , 0.1 ),
+  b ~ dnorm( 0.1 , 0.1 ),
+  sigma ~ dexp(1)
+), data=data1 )
+
+rethinking::compare(model_wide , model_tight)
+```
+*the tighter the prior the less effect each parameter - however this comparison is made with very very simple models, so im not sure this is how it works in general..*
+
+
+7M5. Provide an informal explanation of why informative priors reduce overfitting.
+*with a theoretical strong prior, you thus no how to set (and how tight) your model are fitted better, and you will then avoid overfitting*
+
+7M6. Provide an informal explanation of why overly informative priors result in underfitting.
+*if they are too tight we might leave out important information*
+
+
+
+*Hard.*
+7H1. In 2007, The Wall Street Journal published an editorial (“We’re Number One, Alas”) with a graph of corporate tax rates in 29 countries plotted against tax revenue. 
+A badly fit curve was drawn in (reconstructed at right), seemingly by hand, to make the argument that the relationship between tax rate and tax revenue increases and then declines, such that higher tax rates can actually produce less tax revenue. I want you to actually fit a curve to these data, found in data (Laffer). 
+
+Consider models that use tax rate to predict tax revenue. Compare, using WAIC or PSIS, a straight-line model to any curved models you like. What do you conclude about the relationship between tax rate and tax revenue?
+```{r}
+data("Laffer")
+str(Laffer)
+
+
+Laffer$tax_rate_std <- (Laffer$tax_rate - mean(Laffer$tax_rate))/sd(Laffer$tax_rate)
+Laffer$tax_revenue_std <- Laffer$tax_revenue / max(Laffer$tax_revenue)
+
+plot(Laffer$tax_revenue ~ Laffer$tax_rate)
+```
+*revenue is the kind of economic growth and status of a country*
+
+```{r}
+## MAKING MODELS 
+
+#### a super simple linear model
+model_laf_linear <- quap(alist(
+  tax_revenue_std ~ dnorm( mu , exp(log_sigma)),
+  mu <- a + b*tax_rate_std,
+  a ~ dnorm( 0.5 , 1 ),
+  b ~ dnorm( 0 , 10 ),
+  log_sigma ~ dnorm( 0 , 1 )
+), data=Laffer )
+
+
+### making a exponential model 
+model_laf_exp <- quap(alist(
+  tax_revenue_std ~ dnorm( mu , exp(log_sigma)),
+  mu <- a * b^tax_rate_std,
+  a ~ dnorm( 0.5 , 1 ),
+  b ~ dnorm( 1, 10 ),
+  log_sigma ~ dnorm( 0 , 1 )
+), data=Laffer )
+
+### making a polynomial modelm
+model_laf_poly <- quap(alist(
+  tax_revenue_std ~ dnorm(mu, exp(log_sigma)),
+  mu <- a + b[1]*tax_rate_std + b[2]*tax_rate_std^2,
+  a ~ dnorm( 0.5 , 1 ),
+  b ~ dnorm( 0 , 10 ),
+  log_sigma ~ dnorm( 0 , 1 )
+), data=Laffer, start=list(b=rep(0,2)) )
+```
+
+
+```{r}
+## PLOT FUNCITON
+plot_model_new <- function( model, data, x, y ) { 
+  post <- extract.samples(model) 
+  x_seq <- seq(min(data$x) , max(data$x) , length.out=29 )
+  l <- link( model , data=list( x=x_seq ) )
+  mu <- apply( l , 2 , mean )
+  ci <- apply( l , 2 , PI )
+  plot( y ~ x , data=data )
+  lines( x_seq , mu )
+  shade( ci , x_seq )
+}
+
+
+plot_model_new(model_laf_linear, Laffer, Laffer$tax_rate, Laffer$tax_revenue)
+
+```
+*for some reason this crap doesn't work*
+
+```{r}
+rethinking::compare(model_laf_linear, model_laf_exp, model_laf_poly)
+```
+*according to the WAIC value the polynomial model is the better fit for the data*
+
+
+7H2. In the Laffer data, there is one country with a high tax revenue that is an outlier. Use PSIS and WAIC to measure the importance of this outlier in the models you fit in the previous problem. Then use robust regression with a Student’s t distribution to revisit the curve fitting problem. How much does a curved relationship depend upon the outlier point?
+
+7H3. Consider three fictional Polynesian islands. On each there is a Royal Ornithologist charged by the king with surveying the bird population. They have each found the following proportions of 5 important bird species:
+     Island 1 Island 2 Island 3
+Species A 0.2 0.8 0.05
+Species B 0.2 0.1 0.15
+Species C 0.2 0.05 0.7
+Species D 0.2 0.025 0.05
+Species E 0.2 0.025 0.05
+ Notice that each row sums to 1, all the birds. This problem has two parts. It is not computationally complicated. But it is conceptually tricky. First, compute the entropy of each island’s bird distribution. Interpret these entropy values. Second, use each island’s bird distribution to predict the other two. This means to compute the K-L Divergence of each island from the others, treating each island as if it were a statistical model of the other islands. You should end up with 6 different K-L Divergence values. Which island predicts the others best? Why?
+
+7H4. Recall the marriage, age, and happiness collider bias example from Chapter 6. Run models m6.9 and m6.10 again. Compare these two models using WAIC (or LOO, they will produce identical results). Which model is expected to make better predictions? Which model provides the correct causal inference about the influence of age on happiness? Can you explain why the answers to these two questions disagree?
+
+7H5. Revisit the urban fox data, data(foxes), from the previous chapter’s practice problems. Use WAIC or PSIS based model comparison on five different models, each using weight as the outcome, and containing these sets of predictor variables:
+(1) avgfood + groupsize + area (2) avgfood + groupsize
+(3) groupsize + area
+(4) avgfood
+(5) area
+Can you explain the relative differences in WAIC scores, using the fox DAG from last week’s home- work? Be sure to pay attention to the standard error of the score differences (dSE).
+
+
+

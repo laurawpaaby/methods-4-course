@@ -1,0 +1,52 @@
+---
+title: "DAG TIME"
+author: "LAURA PAAABY"
+date: "3/10/2022"
+output: html_document
+---
+```{r}
+pacman::p_load(rethinking, dagitty)
+```
+
+
+# NIELS DRINKING 
+```{r}
+dag_NIELS <- dagitty( "dag {
+CogSciHairCuts -> NielsHaircut 
+VoguesLatestCover -> NielsHaircut
+NielsHaircut -> NielsDrunkWeek
+Food -> NielsDrunkWeek
+DaysFromExam -> NielsDrunkWeek
+Season -> DaysFromExam
+Season -> MentalSurplus
+MentalSurplus -> SocialEvents
+SocialEvents -> Salsa
+SocialEvents -> Brocas
+Brocas -> NielsDrunkWeek
+Salsa -> NielsDrunkWeek
+Season -> Weather
+Weather -> Sun
+Sun -> NielsDrunkWeek
+}")
+
+coordinates(dag_NIELS) <- list( x=c(S(CogSciHairCuts=0,NielsHaircut=1,VoguesLatestCover=2, Food=0,DaysFromExam=0, NielsDrunkWeek=1, Salsa=2,Brocas =2, Sun=2, Weather=3, Season =4, MentalSurplus = 4, SocialEvents =3 ) ,                                             y=c(CogSciHairCuts=0,NielsHaircut=0,VoguesLatestCover=0, Food=1,DaysFromExam=2, NielsDrunkWeek=1, Salsa=1, Brocas =2, Sun=3, Weather=3, Season =4, MentalSurplus = 2, SocialEvents =2) ) 
+
+drawdag(dag_NIELS)
+
+
+```
+```{r}
+# we then test for independencies:
+impliedConditionalIndependencies( dag_NIELS )
+```
+
+```{r}
+# Identify backdoors 
+adjustmentSets(dag_NIELS)
+```
+```{r}
+#finding dags that could just as well be true as your dag - got the same  implied conditional independencies
+dag_2 <- equivalentDAGs(dag_NIELS)#hmmmmm kind of appears to be the same 
+drawdag(dag_2[8])
+```
+

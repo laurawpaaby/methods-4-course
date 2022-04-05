@@ -1,0 +1,389 @@
+---
+title: "MARKOW CHAINS MONTE CARLO"
+author: "LAURA PAAABY"
+date: "4/4/2022"
+output: html_document
+---
+
+# MARKOV CHAIN MONTE CARLO, BABY 
+```{r}
+pacman::p_load(rstan)
+library(rstan)
+```
+
+
+#### simulating King Markovs Journey 
+sooo an algorithm was made to move a king around his islands in a random order each week, this algorithm can be modeled as such:
+```{r}
+num_weeks <- 1e5 
+positions <- rep(0,num_weeks)
+current <- 10
+
+for ( i in 1:num_weeks ) {# record current position
+  positions[i] <- current
+  
+  # flip coin to generate proposal
+  proposal <- current + sample( c(-1,1) , size=1 )
+  
+  # now make sure he loops around the archipelago
+  if ( proposal < 1 ) proposal <- 10
+  if ( proposal > 10 ) proposal <- 1
+  
+  # move?
+  prob_move <- proposal/current
+  current <- ifelse( runif(1) < prob_move , proposal , current )
+}
+```
+
+
+```{r}
+plot( 1:100 , positions[1:100], xlab = "week", ylab = "island" )
+```
+As you move from the left to the right in this plot, the points show the king’s location through
+time. The king travels among islands, or sometimes stays in place for a few weeks
+
+
+```{r}
+plot(table(positions), xlab = "island", ylab = "number of weeks")
+```
+The horizontal axis is now islands (and their relative populations), while the vertical is the
+number of weeks the king is found on each. After the entire 100,000 weeks (almost 2000
+years) of the simulation, you can see that the proportion of time spent on each island converges
+to be almost exactly proportional to the relative populations of the islands.
+
+For the algorithm to know where to go, it only needs to know any point in time is the *population of the current island* and the *population of the proposal island* - the amount of islands doesn't matter. 
+ 
+
+==> this algoritm is a special kind called **Metropolis Algoritm**
+
+
+### PROVING Concentration of measure 
+This is the reason why any MCMC approach that samples individual parameter distributions in individual steps will get stuck once the number of the parameters gets sufficiently large. SINCE most of the probability mass of a high-dimension distribution is always very far from the mode of the distribution.
+  =>  this means that the combination of parameter values that maximizes *posterior probability, the mode*, is **not** actually in a region of parameter values that are highly plausible.
+  =>  This means in turn that when we properly sample from a high dimensional distribution, we won’t get any points near the mode.
+  
+```{r}
+T <- 1e4
+D_1 <- 100
+D_2 <- 10
+D_3 <- 1
+D_4 <- 1000
+
+D_func <- function(D) rmvnorm(T,rep(0,D),diag(D))
+rad_dist <- function( Y ) sqrt( sum(Y^2) )
+
+Rd <- sapply( 1:T , function(i) rad_dist( D_func(D_1)[i,]) )
+Rd_2 <- sapply( 1:T , function(i) rad_dist( D_func(D_2)[i,] ) )
+Rd_3 <- sapply( 1:T , function(i) rad_dist( D_func(D_3)[i,] ) )
+Rd_4 <- sapply( 1:T , function(i) rad_dist( D_func(D_4)[i,] ) )
+
+
+plot(density(Rd),         
+     xlim = c(-0.5, 35),
+     ylim = c(0, 0.8), 
+     main = "Concentration of measure and the curse of high dimensions",
+     xlab = "radial distance from mode", 
+     ylab = "density")
+lines(density(Rd_2),        
+      col = 2)
+lines(density(Rd_3),         
+      col = 3)
+lines(density(Rd_4),
+      col = 4)
+```
+
+The horizontal axis here is radial distance of the point from the mode. 
+**So the value 0 is the peak of probability.**
+You can see that an ordinary Gaussian distribution with only 1 dimension, on the left, samples most of its points right next to this peak, as you’d expect. But with 10 dimensions, already there are no samples next to the peak at zero. With 100 dimensions, we’ve moved very far from the peak.
+
+
+
+# HAMILTONIAN MONTE CARLO TIME 
+
+#### THE 5 NEEDS OF HMC
+The HMC algorithm needs five things to go:
+1.  a function U that returns the negative log-probability of the data at the current position (parameter values)
+2. a function grad_U that returns the gradient of the negative log-probability at the current position
+3. a step size epsilon
+4. a count of leapfrog steps L,
+5. a starting position current_q.
+
+Keep in mind that the position is a vector of parameter values and that the gradient also needs to return a vector of the same length. 
+
+```{r}
+### 1. U needs to return neg-log-probability
+U <- function( q , a=0 , b=1 , k=0 , d=1 ) {
+  muy <- q[1]
+  mux <- q[2]
+U <- sum( dnorm(y,muy,1,log=TRUE) ) + sum( dnorm(x,mux,1,log=TRUE) ) +
+dnorm(muy,a,b,log=TRUE) + dnorm(mux,k,d,log=TRUE)
+return( -U )
+}
+```
+
+
+```{r}
+#2.  gradient function
+# need vector of partial derivatives of U with respect to vector q
+U_gradient <- function( q , a=0 , b=1 , k=0 , d=1 ) {
+muy <- q[1]
+mux <- q[2]
+G1 <- sum( y - muy ) + (a - muy)/b^2 #dU/dmuy
+G2 <- sum( x - mux ) + (k - mux)/d^2 #dU/dmux
+return( c( -G1 , -G2 ) ) # negative bc energy is neg-log-prob
+}
+# test data
+set.seed(7)
+y <- rnorm(50)
+x <- rnorm(50)
+x <- as.numeric(scale(x))
+y <- as.numeric(scale(y))
+```
+
+
+
+
+### MAKING FIGURES
+```{r}
+library(shape) # for fancy arrows
+# this first part is what gives us random momentum that sends the little particle on its way down the bowl of the log posteruir
+Q <- list()
+Q$q <- c(-0.1,0.2)
+pr <- 0.3
+plot( NULL , ylab="mu_y" , xlab="mu_x" , xlim=c(-pr,pr) , ylim=c(-pr,pr) )
+step <- 0.03
+
+L <- 11 # 0.03/28 for U-turns --- 11 for working example === STEPS TAKEN 
+n_samples <- 4
+path_col <- col.alpha("black",0.5)
+points( Q$q[1] , Q$q[2] , pch=4 , col="black" )
+
+for ( i in 1:n_samples ) {
+  Q <- HMC2( U , U_gradient , step , L , Q$q )
+  if ( n_samples < 10 ) {
+  for ( j in 1:L ) {
+    K0 <- sum(Q$ptraj[j,]^2)/2 # kinetic energy
+    lines( Q$traj[j:(j+1),1] , Q$traj[j:(j+1),2] , col=path_col , lwd=1+2*K0 )
+        }
+  points( Q$traj[1:L+1,] , pch=16 , col="white" , cex=0.35 )
+  Arrows( Q$traj[L,1] , Q$traj[L,2] , Q$traj[L+1,1] , Q$traj[L+1,2] , arr.length=0.35 , arr.adj = 0.7 )
+  text( Q$traj[L+1,1] , Q$traj[L+1,2] , i , cex=0.8 , pos=4 , offset=0.4 )
+    }
+points( Q$traj[L+1,1] , Q$traj[L+1,2] , pch=ifelse( Q$accept==1 , 16 , 1 ) ,
+col=ifelse( abs(Q$dH)>0.1 , "red" , "black" ) )
+}
+```
+Here we have build a train through the loop that gives the *chain* of parameters.
+
+### MAKING THE HMC2
+
+```{r}
+HMC2 <- function (U, grad_U, epsilon, L, current_q) {
+  q = current_q
+  p = rnorm(length(q),0,1) # random flick - p is momentum.
+  current_p = p
+# Make a half step for momentum at the beginning
+  p = p - epsilon * grad_U(q) / 2
+# initialize bookkeeping - saves trajectory
+  qtraj <- matrix(NA,nrow=L+1,ncol=length(q))
+  ptraj <- qtraj
+  qtraj[1,] <- current_q
+  ptraj[1,] <- p
+
+
+# Alternate full steps for position and momentum 
+for ( i in 1:L ) {
+  q = q + epsilon * p # Full step for the position
+# Make a full step for the momentum, except at end of trajectory
+  if ( i!=L ) {
+  p = p - epsilon * grad_U(q)
+  ptraj[i+1,] <- p
+  }
+qtraj[i+1,] <- q
+}
+
+
+# Make a half step for momentum at the end
+p = p - epsilon * grad_U(q) / 2
+ptraj[L+1,] <- p
+# Negate momentum at end of trajectory to make the proposal symmetric
+p = -p
+# Evaluate potential and kinetic energies at start and end of trajectory
+current_U = U(current_q)
+current_K = sum(current_p^2) / 2
+proposed_U = U(q)
+proposed_K = sum(p^2) / 2
+# Accept or reject the state at end of trajectory, returning either
+# the position at the end of the trajectory or the initial position
+accept <- 0
+if (runif(1) < exp(current_U-proposed_U+current_K-proposed_K)) {
+  new_q <- q # accept
+  accept <- 1
+  } else new_q <- current_q  # reject
+  return(list( q=new_q, traj=qtraj, ptraj=ptraj, accept=accept ))
+}
+
+
+```
+
+okiiii so everything above was a bit to complex, and actually just a part of an overthinking box :D
+
+# THE EASY HCM 
+```{r}
+library(rethinking)
+
+#FIXING THE AFRICA DATA 
+data(rugged)
+d <- rugged
+d$log_gdp <- log(d$rgdppc_2000)
+dd <- d[ complete.cases(d$rgdppc_2000) , ]
+dd$log_gdp_std <- dd$log_gdp / mean(dd$log_gdp)
+dd$rugged_std <- dd$rugged / max(dd$rugged)
+dd$cid <- ifelse( dd$cont_africa==1 , 1 , 2 )
+
+
+### we still fit the old quap model to the data:
+m8.3 <- quap(alist(
+  log_gdp_std ~ dnorm( mu , sigma ) ,
+  mu <- a[cid] + b[cid]*( rugged_std - 0.215 ) ,
+  a[cid] ~ dnorm( 1 , 0.1 ) ,
+  b[cid] ~ dnorm( 0 , 0.3 ) ,
+  sigma ~ dexp( 1 )
+) , data=dd )
+precis( m8.3 , depth=2 )
+```
+
+
+
+the data is already prepared, now it is time to properly slim it;
+meaning we just make a new df containing the variables we actually wanna work with. 
+```{r}
+dat_slim <- list(
+  log_gdp_std = dd$log_gdp_std,
+  rugged_std = dd$rugged_std,
+  cid = as.integer( dd$cid )
+  )
+
+str(dat_slim)
+```
+
+*the reason we use list is because they then can have different lengths - in a df all variables must have the same length.*
+
+
+```{r}
+library(rstan, rethinking)
+pacman::p_load( pillar, ellipsis, vctrs) #the internet says i need these 
+```
+
+### sampling from the posterior - STAN STYLE
+```{r}
+m9.1 <- rethinking::ulam(alist(
+  log_gdp_std ~ dnorm( mu , sigma ) ,
+  mu <- a[cid] + b[cid]*( rugged_std - 0.215 ) ,
+  a[cid] ~ dnorm( 1 , 0.1 ) ,
+  b[cid] ~ dnorm( 0 , 0.3 ) ,
+  sigma ~ dexp( 1 )
+) , data=dat_slim , chains=1 )
+
+### for some reason im not aloud to make this ://
+stancode(m9.1)
+
+
+precis( m9.1 , depth=2 )
+```
+ 
+ To the model above we can now model more *Cores* into it - this means that we run the model several more times parallel to the actual one. 
+ 
+```{r}
+m9.1 <- rethinking::ulam(alist(
+  log_gdp_std ~ dnorm( mu , sigma ) ,
+  mu <- a[cid] + b[cid]*( rugged_std - 0.215 ) ,
+  a[cid] ~ dnorm( 1 , 0.1 ) ,
+  b[cid] ~ dnorm( 0 , 0.3 ) ,
+  sigma ~ dexp( 1 )
+) , data=dat_slim , chains=4 , cores=4 ) #adding the cores
+
+
+show( m9.1 )
+```
+ There were 2000 samples from all 4 chains, because each 1000 sample chain uses by deault the
+fist half of the samples to adapt.
+
+=> but if we look at the summary there is more than 2000, this is because STAN is so good that it beats random, and thus gives you more samples that are uncorrelated than asked for. 
+
+
+# Visualization
+```{r}
+pairs(m9.1)
+```
+
+shows the resulting plot. This is a pairs plot, so it’s still a matrix of bivariate scatter
+plots. But now along the diagonal the smoothed histogram of each parameter is shown, along
+with its name. And in the lower triangle of the matrix, the correlation between each pair of
+parameters is shown, with stronger correlations indicated by relative size.
+
+
+```{r}
+traceplot(m9.1, chains = 1)
+```
+You can think of the zig-zagging trace of each parameter as the path the chain took through each dimension of parameter space. The gray region in each plot, the first 500 samples, marks the adaptation samples.
+
+
+
+
+
+### PROBS TIME 
+One of the probs we often get into is  that there are *broad, flat regions of the posterior density.* This problem arises when we use super flat priors:
+example:
+
+```{r}
+y <- c(-1,1)
+set.seed(11)
+  m9.2 <- rethinking::ulam(
+  alist(
+    y ~ dnorm( mu , sigma ) ,
+    mu <- alpha ,
+    alpha ~ dnorm( 0 , 1000 ) ,
+    sigma ~ dexp( 0.0001 )
+) , data=list(y=y) , chains=3 )
+```
+Whoa! This posterior can’t be right. The mean of −1 and 1 is zero, so we’re hoping to get
+a mean value for alpha around zero. Instead we get crazy values and implausibly wide intervals.
+Inference for sigma is no better. The n_eff and Rhat diagnostics don’t look good
+either. We drew 1500 samples total, but the estimated effective sample sizes are 116 and 179.
+
+
+buuuut lets now fix the prob: 
+- this is simply just done by setting the priors
+```{r}
+set.seed(11)
+
+m9.3 <- rethinking::ulam(alist(
+  y ~ dnorm( mu , sigma ) ,
+  mu <- alpha ,
+  alpha ~ dnorm( 1 , 10 ) ,
+  sigma ~ dexp( 1 )
+  ) , data=list(y=y) , chains=3 )
+precis( m9.3 )
+```
+mucho better. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
