@@ -621,10 +621,10 @@ rethinking::compare(model_wide , model_tight)
 
 
 7M5. Provide an informal explanation of why informative priors reduce overfitting.
-*with a theoretical strong prior, you thus no how to set (and how tight) your model are fitted better, and you will then avoid overfitting*
+*with a theoretical strong prior, you thus no how to set (and how tight) your model are fitted better, and you will then avoid overfitting. Any type of prior would function as a regularization, and thus prevent overfitting.*
 
 7M6. Provide an informal explanation of why overly informative priors result in underfitting.
-*if they are too tight we might leave out important information*
+*if they are too tight we might leave out important information, since they could be biased towards which kind of towards some information that according to the priors would explain everything, even though this is not the case. You also need a loooot of data to avoid the issue of underfitting when having super informative priors.*
 
 
 

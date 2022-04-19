@@ -1,0 +1,97 @@
+---
+title: "STAN"
+author: "LAURA PAAABY"
+date: "4/6/2022"
+output: html_document
+---
+# STAN 
+
+```{r}
+pacman::p_load(rstan, rethinking)
+```
+
+
+THIS IS AN INTRO TO THE PURE STAN APPROACH 
+- ulam just buils Stan code 
+- Stan code is portable, runs on anything
+- if you learn Stan, it can be used in any scripting language. 
+
+
+okay this is a way to make stan codes - so the entire code below should be made in a separate stan script, which can then be pulled into the R document from files (in the block in the bottom left), and attached as a model as done in the bottom. 
+You would thus NOT work this kind of way often. 
+
+
+
+**FIRST EXAMPLE OF STAN CODE**
+we would never work like this, cause this should all go into a STAN script file, that we should then pull it back to r by the file path as done in the bottom. 
+```{r}
+#### stan code (mHMC), this is an example using the variables from the divorce data.
+data{
+  ## the observed variables 
+  vector[50] D; # divorce rate
+  vector[50] A; # age 
+  vector[50] M; # marriage
+}
+
+### ^^^^  Must declare the type of each observed variable so Stan can catch errors and know operations are allowed.
+#So if you try to do something that is not allowed by the variable type
+
+# UNOBSERVED VARIABLES 
+parameters {
+  # the unobserved variables 
+  real a; #alpha
+  real bM; # beta marriage
+  real bA; #beta age
+  real<lower=0> sigma; #sigma
+}
+
+### ^^^^^ the unobserved variables also need checks and constraints. Declared here.
+
+# MODEL BLOCK
+model{
+  # compute the log posterior probability 
+  vector[50], mu;
+  sigma ~ exp(1);
+  bA ~ dnorm(0,0.5);
+  bM ~ dnorm(0,0.5);
+  a ~ dnorm(0,0.2);
+  for ( i in 1:50) {
+    mu[i] = a + bM*M[i] + bA*A[i];
+  }
+D ~ normal(mu, sigma);
+}
+
+```
+
+Declare the distribution parts of the model sufficient to compute *posterior probability*
+In big models, this part is super complex.
+
+
+
+#### SAVE STAN CODE AS OWN FILE 
+apparently this is how it works using pure stan
+=> to be able to sample posteriors we must make the code into a file:
+```{r}
+mHMC_stan <- (file = "Name_of_stan", data = dat) # obs => im not completely sure how this works
+
+### extracting posteriors: 
+post <- extract.samples(mHMC_stan)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

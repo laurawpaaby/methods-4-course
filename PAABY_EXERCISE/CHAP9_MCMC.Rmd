@@ -273,6 +273,8 @@ str(dat_slim)
 ```{r}
 library(rstan, rethinking)
 pacman::p_load( pillar, ellipsis, vctrs) #the internet says i need these 
+
+remove.packages(pillar)
 ```
 
 ### sampling from the posterior - STAN STYLE
@@ -285,7 +287,7 @@ m9.1 <- rethinking::ulam(alist(
   sigma ~ dexp( 1 )
 ) , data=dat_slim , chains=1 )
 
-### for some reason im not aloud to make this ://
+
 stancode(m9.1)
 
 
@@ -339,7 +341,7 @@ example:
 ```{r}
 y <- c(-1,1)
 set.seed(11)
-  m9.2 <- rethinking::ulam(
+ m9.2 <- rethinking::ulam(
   alist(
     y ~ dnorm( mu , sigma ) ,
     mu <- alpha ,
@@ -369,6 +371,37 @@ precis( m9.3 )
 mucho better. 
 
 
+# EXAMPLE FROM ONLINE LECTURE:
+this is now on the divorce data
+```{r}
+library(rethinking, rstan)
+data("WaffleDivorce")
+d <- (WaffleDivorce)
+
+dat <- list(
+  D = standardize(d$Divorce),
+  M = standardize(d$Marriage),
+  A = standardize(d$MedianAgeMarriage)
+)
+
+
+### modellos los typical
+f <- alist(
+  D ~ dnorm(mu, sigma),
+  mu <- a + B_m*M + B_a*A,
+  a ~ dnorm(0,0.2),
+  B_m ~ dnorm(0,0.5),
+  B_a ~ dnorm(0,0.5),
+  sigma ~ dexp(1)
+)
+
+mq <- quap(f, data = dat) ### fitting as we usually do by quadratic
+mHMS <- ulam(f, data = dat)
+
+precis(mq)
+precis(mHMS)
+```
+these two are close to having the same outputs here - this is because this is a simple linear model. 
 
 
 
